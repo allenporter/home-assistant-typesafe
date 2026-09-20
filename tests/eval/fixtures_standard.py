@@ -11,7 +11,7 @@ from homeassistant.components import conversation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
-from custom_components.typesafe.speculative.strategy import StrategyContext
+from custom_components.typesafe.speculative.context import DecisionContext
 from tests.common.fixture_loader import (
     DeviceActionCase,
     load_device_action_cases,
@@ -63,7 +63,7 @@ class MockClimateIntentHandler(intent.IntentHandler):
 
 
 @pytest.fixture(name="farmhouse_context")
-def farmhouse_context_fixture(hass: HomeAssistant) -> StrategyContext:
+def farmhouse_context_fixture(hass: HomeAssistant) -> DecisionContext:
     """Load the full family farmhouse synthetic home fixture context."""
     return load_synthetic_home_fixtures(hass)
 

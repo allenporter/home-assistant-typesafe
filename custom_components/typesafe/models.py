@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 
 from .client import TypeSafeClient
-from .speculative.engine import DecisionEngine
-from .speculative.strategy import DecisionStrategy
+from .speculative.flow import DecisionFlow
+from .speculative.scoring.engine import DecisionEngine
 
 type TypeSafeConfigEntry = ConfigEntry[TypeSafeData]
 
@@ -19,4 +19,4 @@ class TypeSafeData:
 
     client: TypeSafeClient
     engine: DecisionEngine
-    strategy: DecisionStrategy
+    flow: DecisionFlow

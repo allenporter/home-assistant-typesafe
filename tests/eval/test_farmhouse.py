@@ -5,22 +5,22 @@ from __future__ import annotations
 import pytest
 
 from custom_components.typesafe.engine import TypeSafeDecisionEngine
-from custom_components.typesafe.speculative.strategy import (
-    SpeculativeFanOutStrategy as DecisionStrategy,
-    StrategyContext,
-)
+from custom_components.typesafe.speculative.context import DecisionContext
+from custom_components.typesafe.speculative.flow import DecisionFlow
 
 pytestmark = pytest.mark.slow
 
 
 async def test_live_farmhouse_turn_on_kitchen_light(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: turn on light command routes to kitchen light entity or area."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine, "Turn on the Kitchen Light", farmhouse_context
+    decision = await typesafe_flow.async_run(
+        text="Turn on the Kitchen Light",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert not decision.should_escalate
@@ -38,13 +38,15 @@ async def test_live_farmhouse_turn_on_kitchen_light(
 
 
 async def test_live_farmhouse_turn_off_porch_light(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: turn off light command routes to porch light."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine, "Turn off the Porch Light", farmhouse_context
+    decision = await typesafe_flow.async_run(
+        text="Turn off the Porch Light",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert not decision.should_escalate
@@ -62,15 +64,15 @@ async def test_live_farmhouse_turn_off_porch_light(
 
 
 async def test_live_farmhouse_dim_kitchen_light(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: brightness percentage slot extracted alongside device targeting."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine,
-        "Set the Kitchen Light to 50% brightness",
-        farmhouse_context,
+    decision = await typesafe_flow.async_run(
+        text="Set the Kitchen Light to 50% brightness",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert not decision.should_escalate
@@ -83,15 +85,15 @@ async def test_live_farmhouse_dim_kitchen_light(
 
 
 async def test_live_farmhouse_compound_escalation(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: multi-action compound command triggers escalation."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine,
-        "Turn on the kitchen light and turn off the porch light",
-        farmhouse_context,
+    decision = await typesafe_flow.async_run(
+        text="Turn on the kitchen light and turn off the porch light",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert decision.should_escalate
@@ -99,26 +101,30 @@ async def test_live_farmhouse_compound_escalation(
 
 
 async def test_live_farmhouse_out_of_domain_escalation(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: general conversational query not matching home control escalates."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine, "What is the capital of France?", farmhouse_context
+    decision = await typesafe_flow.async_run(
+        text="What is the capital of France?",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert decision.should_escalate
 
 
 async def test_live_farmhouse_valve_turn_on(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: turn on sprinklers command routes to backyard sprinkler valve."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine, "Turn on the backyard sprinklers", farmhouse_context
+    decision = await typesafe_flow.async_run(
+        text="Turn on the backyard sprinklers",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert not decision.should_escalate
@@ -136,13 +142,15 @@ async def test_live_farmhouse_valve_turn_on(
 
 
 async def test_live_farmhouse_media_player_pause(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: pause command routes to family room speaker."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine, "Pause the family room speaker", farmhouse_context
+    decision = await typesafe_flow.async_run(
+        text="Pause the family room speaker",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert not decision.should_escalate
@@ -159,13 +167,15 @@ async def test_live_farmhouse_media_player_pause(
 
 
 async def test_live_farmhouse_cover_open(
-    farmhouse_context: StrategyContext,
+    farmhouse_context: DecisionContext,
     live_typesafe_engine: TypeSafeDecisionEngine,
-    typesafe_strategy: DecisionStrategy,
+    typesafe_flow: DecisionFlow,
 ) -> None:
     """Live inference test: open garage door command routes to barn garage door cover."""
-    decision = await typesafe_strategy.async_decide(
-        live_typesafe_engine, "Open the barn garage door", farmhouse_context
+    decision = await typesafe_flow.async_run(
+        text="Open the barn garage door",
+        context=farmhouse_context,
+        engine=live_typesafe_engine,
     )
 
     assert not decision.should_escalate

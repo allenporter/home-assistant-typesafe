@@ -13,7 +13,7 @@ from typesafe_sdk import (
 )
 
 from .client import TypeSafeClient
-from .speculative.engine import DecisionEngine, PredictionResult
+from .speculative.scoring.engine import DecisionEngine, PredictionResult
 from .speculative.models import (
     Answer,
     ChoiceAnswer,

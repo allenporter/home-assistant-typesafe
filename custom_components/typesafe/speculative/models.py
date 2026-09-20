@@ -21,7 +21,7 @@ from typing import Any
 
 
 # ============================================================================
-# 1. Choice Primitive: Categorical Selection
+# Choice Primitive: Categorical Selection
 # ============================================================================
 
 
@@ -72,7 +72,7 @@ class ChoiceAnswer:
 
 
 # ============================================================================
-# 2. Noul Primitive: Calibrated Boolean Judgment
+# Noul Primitive: Calibrated Boolean Judgment
 # ============================================================================
 
 
@@ -112,7 +112,7 @@ class NoulAnswer:
 
 
 # ============================================================================
-# 3. Score Primitive: Ordinal Rubric Evaluation
+# Score Primitive: Ordinal Rubric Evaluation
 # ============================================================================
 
 

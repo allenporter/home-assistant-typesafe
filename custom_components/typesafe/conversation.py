@@ -11,13 +11,19 @@ from homeassistant.components.homeassistant.exposed_entities import (
 )
 from homeassistant.const import MATCH_ALL
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import area_registry as ar, entity_registry as er, intent
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+    intent,
+)
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_FALLBACK_AGENT, DOMAIN
 from .models import TypeSafeConfigEntry
-from .speculative.engine import DecisionEngine
-from .speculative.strategy import DecisionStrategy, StrategyContext
+from .speculative.context import DecisionContext
+from .speculative.flow import DecisionFlow
+from .speculative.scoring.engine import DecisionEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +37,7 @@ async def async_setup_entry(
     entity = TypeSafeConversationEntity(
         entry=entry,
         engine=entry.runtime_data.engine,
-        strategy=entry.runtime_data.strategy,
+        flow=entry.runtime_data.flow,
     )
     async_add_entities([entity])
 
@@ -48,12 +54,12 @@ class TypeSafeConversationEntity(
         self,
         entry: TypeSafeConfigEntry,
         engine: DecisionEngine,
-        strategy: DecisionStrategy,
+        flow: DecisionFlow,
     ) -> None:
         """Initialize the conversation entity."""
         self._entry = entry
         self._engine = engine
-        self._strategy = strategy
+        self._flow = flow
         self._attr_unique_id = entry.entry_id
         self._attr_name = entry.title
 
@@ -89,18 +95,25 @@ class TypeSafeConversationEntity(
         ]
         active_states = exposed_states if exposed_states else all_states
 
-        context = StrategyContext(
+        originating_area_id: str | None = None
+        if user_input.device_id:
+            dev_reg = dr.async_get(self.hass)
+            dev_entry = dev_reg.async_get(user_input.device_id)
+            if dev_entry and dev_entry.area_id:
+                originating_area_id = dev_entry.area_id
+
+        context = DecisionContext(
             hass=self.hass,
             area_registry=area_reg,
             entity_registry=entity_reg,
             states=active_states,
-            home_name=self.hass.config.location_name,
             language=user_input.language,
             device_id=user_input.device_id,
+            originating_area_id=originating_area_id,
         )
 
-        decision = await self._strategy.async_decide(
-            self._engine, user_input.text, context
+        decision = await self._flow.async_run(
+            text=user_input.text, context=context, engine=self._engine
         )
 
         if decision.should_escalate or not decision.intent_name:
