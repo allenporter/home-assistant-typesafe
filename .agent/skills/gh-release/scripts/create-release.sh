@@ -23,7 +23,7 @@ if ! command -v gh &> /dev/null; then
     exit 1
 fi
 
-MANIFEST_FILES=$(find . -name "manifest.json")
+MANIFEST_FILES=$(git ls-files "**/manifest.json")
 NUM_FILES=$(echo "$MANIFEST_FILES" | wc -l)
 
 if [ "$NUM_FILES" -eq 0 ]; then
@@ -38,7 +38,7 @@ fi
 MANIFEST_PATH=$MANIFEST_FILES
 
 # Using python to update the json file to avoid issues with sed
-python -c "import json; data = json.load(open('$MANIFEST_PATH')); data['version'] = '$VERSION'; json.dump(data, open('$MANIFEST_PATH', 'w'), indent=2)"
+python -c "import json; data = json.load(open('$MANIFEST_PATH')); data['version'] = '$VERSION'; f = open('$MANIFEST_PATH', 'w'); json.dump(data, f, indent=2); f.write('\n'); f.close()"
 
 git add "$MANIFEST_PATH"
 git commit -m "chore(release): $VERSION"
