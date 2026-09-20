@@ -34,7 +34,9 @@ async def test_engine_async_predict_question_serialization(
     engine: TypeSafeDecisionEngine, mock_client: AsyncMock
 ) -> None:
     """Test that canonical Question primitives are correctly serialized for TypeSafe API."""
-    mock_client.async_evaluate.return_value = {
+    import typesafe_sdk
+
+    mock_client.async_system_one.return_value = {
         "model": "jev-latest",
         "answers": {
             "intent": {"type": "choice", "choice": "HassTurnOn", "confidence": 0.95},
@@ -61,30 +63,24 @@ async def test_engine_async_predict_question_serialization(
         state={"utterance": "Turn on lights"}, questions=questions
     )
 
-    assert mock_client.async_evaluate.call_count == 1
-    call_args = mock_client.async_evaluate.call_args[1]
+    assert mock_client.async_system_one.call_count == 1
+    call_args = mock_client.async_system_one.call_args[1]
     assert call_args["state"] == {"utterance": "Turn on lights"}
-    serialized = call_args["questions"]
+    sdk_q = call_args["questions"]
 
-    assert serialized["intent"] == {
-        "type": "choice",
-        "instructions": "Select intent",
-        "criteria": {"HassTurnOn": "Turn on light"},
-    }
-    assert serialized["is_compound"] == {
-        "type": "noul",
-        "instructions": "Is it compound?",
-    }
-    assert serialized["quality"] == {
-        "type": "score",
-        "instructions": "Rate quality",
-        "criteria": ["Low", "Medium", "High"],
-    }
-    assert serialized["raw_dict"] == {
-        "type": "choice",
-        "instructions": "Custom",
-        "criteria": {},
-    }
+    assert isinstance(sdk_q["intent"], typesafe_sdk.Choice)
+    assert sdk_q["intent"].instructions == "Select intent"
+    assert sdk_q["intent"].criteria == {"HassTurnOn": "Turn on light"}
+
+    assert isinstance(sdk_q["is_compound"], typesafe_sdk.Noul)
+    assert sdk_q["is_compound"].instructions == "Is it compound?"
+
+    assert isinstance(sdk_q["quality"], typesafe_sdk.Score)
+    assert sdk_q["quality"].instructions == "Rate quality"
+    assert sdk_q["quality"].criteria == ["Low", "Medium", "High"]
+
+    assert isinstance(sdk_q["raw_dict"], typesafe_sdk.Choice)
+    assert sdk_q["raw_dict"].instructions == "Custom"
 
     assert result.model == "jev-latest"
     assert result.usage == {"input_tokens": 100, "output_tokens": 20}
@@ -101,7 +97,7 @@ async def test_engine_async_predict_inferred_types_and_none_choice(
     engine: TypeSafeDecisionEngine, mock_client: AsyncMock
 ) -> None:
     """Test inferring answer types when 'type' field is missing, and handling None choice."""
-    mock_client.async_evaluate.return_value = {
+    mock_client.async_system_one.return_value = {
         "model": "jev-latest",
         "answers": {
             "intent": {"choice": None, "confidence": 0.9},
@@ -128,3 +124,41 @@ async def test_engine_async_predict_inferred_types_and_none_choice(
     assert isinstance(result.answers["rating"], ScoreAnswer)
     assert result.answers["rating"].score == 1.5
     assert "non_dict" not in result.answers
+
+
+async def test_engine_async_predict_system_one_response(
+    engine: TypeSafeDecisionEngine, mock_client: AsyncMock
+) -> None:
+    """Test engine handling of typed SystemOneResponse directly from async_system_one."""
+    import typesafe_sdk
+
+    mock_client.async_system_one.return_value = typesafe_sdk.SystemOneResponse(
+        model="jev-latest",
+        usage=typesafe_sdk.Usage(input_tokens=50, output_tokens=10),
+        answers={
+            "intent": typesafe_sdk.ChoiceAnswer(
+                choice="HassTurnOn",
+                confidence=0.97,
+                probabilities={"HassTurnOn": 0.97},
+            ),
+            "is_compound": typesafe_sdk.NoulAnswer(noul=0.02),
+        },
+    )
+
+    questions = {
+        "intent": ChoiceQuestion(
+            instructions="Intent", criteria={"HassTurnOn": "Turn on"}
+        ),
+        "is_compound": NoulQuestion(instructions="Compound?"),
+    }
+
+    result = await engine.async_predict(state="Turn on the lights", questions=questions)
+
+    assert mock_client.async_system_one.call_count == 1
+    assert result.model == "jev-latest"
+    assert result.usage == {"input_tokens": 50, "output_tokens": 10}
+    assert isinstance(result.answers["intent"], ChoiceAnswer)
+    assert result.answers["intent"].choice == "HassTurnOn"
+    assert result.answers["intent"].confidence == 0.97
+    assert isinstance(result.answers["is_compound"], NoulAnswer)
+    assert result.answers["is_compound"].noul == 0.02

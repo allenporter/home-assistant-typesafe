@@ -6,6 +6,13 @@ from collections.abc import Mapping
 import logging
 from typing import Any
 
+from typesafe_sdk import (
+    Choice,
+    Noul,
+    Score,
+    SystemOneResponse,
+)
+
 from .client import TypeSafeClient
 from .speculative.engine import DecisionEngine, PredictionResult
 from .speculative.models import (
@@ -40,35 +47,89 @@ class TypeSafeDecisionEngine(DecisionEngine):
         questions: Mapping[str, Question | dict[str, Any]],
     ) -> PredictionResult:
         """Translate questions, evaluate via TypeSafeClient, and return PredictionResult."""
-        serialized_questions: dict[str, dict[str, Any]] = {}
+        sdk_questions: dict[str, Choice | Noul | Score] = {}
+
         for qid, q in questions.items():
             if isinstance(q, ChoiceQuestion):
-                serialized_questions[qid] = {
-                    "type": "choice",
-                    "instructions": q.instructions,
-                    "criteria": q.criteria,
-                }
+                sdk_questions[qid] = Choice(
+                    instructions=q.instructions,
+                    criteria=q.criteria,
+                )
             elif isinstance(q, NoulQuestion):
-                serialized_questions[qid] = {
-                    "type": "noul",
-                    "instructions": q.instructions,
-                }
+                sdk_questions[qid] = Noul(
+                    instructions=q.instructions,
+                )
             elif isinstance(q, ScoreQuestion):
-                serialized_questions[qid] = {
-                    "type": "score",
-                    "instructions": q.instructions,
-                    "criteria": q.criteria,
-                }
+                sdk_questions[qid] = Score(
+                    instructions=q.instructions,
+                    criteria=q.criteria,
+                )
+            elif isinstance(q, (Choice, Noul, Score)):
+                sdk_questions[qid] = q
             elif isinstance(q, dict):
-                serialized_questions[qid] = q
+                qtype = q.get("type")
+                if qtype == "choice":
+                    sdk_questions[qid] = Choice(
+                        instructions=q.get("instructions", ""),
+                        criteria=q.get("criteria", {}),
+                    )
+                elif qtype == "noul":
+                    sdk_questions[qid] = Noul(
+                        instructions=q.get("instructions", ""),
+                        criteria=q.get("criteria"),
+                    )
+                elif qtype == "score":
+                    sdk_questions[qid] = Score(
+                        instructions=q.get("instructions", ""),
+                        criteria=q.get("criteria", []),
+                    )
 
-        raw_response = await self._client.async_evaluate(
-            state=state, questions=serialized_questions
+        raw_response = await self._client.async_system_one(
+            state=state, questions=sdk_questions
         )
 
-        raw_answers = raw_response.get("answers", {})
         answers: dict[str, Answer] = {}
 
+        if isinstance(raw_response, SystemOneResponse):
+            for qid, c_ans in raw_response.choices.items():
+                choice_val = "" if c_ans.choice is None else str(c_ans.choice)
+                answers[qid] = ChoiceAnswer(
+                    choice=choice_val,
+                    confidence=float(c_ans.confidence),
+                    probabilities={
+                        str(k): float(v) for k, v in (c_ans.probabilities or {}).items()
+                    },
+                    action={},
+                )
+            for qid, n_ans in raw_response.nouls.items():
+                answers[qid] = NoulAnswer(
+                    noul=float(n_ans.noul),
+                    confidence=0.0,
+                    action={},
+                )
+            for qid, s_ans in raw_response.scores.items():
+                answers[qid] = ScoreAnswer(
+                    score=float(s_ans.score),
+                    confidence=float(s_ans.confidence),
+                    probabilities={
+                        str(k): float(v) for k, v in (s_ans.probabilities or {}).items()
+                    },
+                    legend={str(k): str(v) for k, v in (s_ans.legend or {}).items()},
+                    action={},
+                )
+
+            usage = (
+                raw_response.usage.model_dump()
+                if raw_response.usage is not None
+                else {}
+            )
+            return PredictionResult(
+                answers=answers,
+                model=raw_response.model,
+                usage=usage,
+            )
+
+        raw_answers = raw_response.get("answers", {})
         for qid, ans_data in raw_answers.items():
             if not isinstance(ans_data, dict):
                 continue

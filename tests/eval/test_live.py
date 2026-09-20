@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-import aiohttp
+import httpx
 import pytest
 from homeassistant.core import HomeAssistant
 
@@ -36,8 +36,10 @@ async def test_live_farmhouse_turn_on_kitchen_light(
         pytest.fail("TYPESAFE_API_KEY environment variable is not set")
     assert api_key is not None
 
-    async with aiohttp.ClientSession() as session:
-        client = TypeSafeClient(session=session, api_key=api_key, model="jev-latest")
+    async with httpx.AsyncClient() as http_client:
+        client = TypeSafeClient(
+            api_key=api_key, http_client=http_client, model="jev-latest"
+        )
         engine = TypeSafeDecisionEngine(client)
         decision = await strategy.async_decide(
             engine, "Turn on the Kitchen Light", farmhouse_context

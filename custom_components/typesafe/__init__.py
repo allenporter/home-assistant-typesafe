@@ -6,7 +6,7 @@ import logging
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers import httpx_client
 
 from .client import TypeSafeClient
 from .const import (
@@ -36,8 +36,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: TypeSafeConfigEntry) -> 
         )
     )
 
-    session = aiohttp_client.async_get_clientsession(hass)
-    client = TypeSafeClient(session=session, api_key=api_key, model=model)
+    http_client = httpx_client.get_async_client(hass)
+    client = TypeSafeClient(api_key=api_key, http_client=http_client, model=model)
     engine = TypeSafeDecisionEngine(client=client)
     strategy = DecisionStrategy(confidence_threshold=confidence_threshold)
 

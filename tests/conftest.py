@@ -90,6 +90,19 @@ class MockTypeSafeClient:
             "answers": self.answers,
         }
 
+    async def async_system_one(
+        self,
+        state: Any,
+        questions: Any,
+        model: str | None = None,
+    ) -> Any:
+        """System one mock."""
+        serialized = {
+            k: v.model_dump() if hasattr(v, "model_dump") else v
+            for k, v in questions.items()
+        }
+        return await self.async_evaluate(state=state, questions=serialized, model=model)
+
 
 @pytest.fixture(name="mock_client")
 def mock_client_fixture() -> MockTypeSafeClient:

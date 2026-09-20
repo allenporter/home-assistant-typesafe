@@ -14,7 +14,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
-from homeassistant.helpers import aiohttp_client, selector
+from homeassistant.helpers import httpx_client, selector
 
 from .client import TypeSafeAuthError, TypeSafeClient, TypeSafeError
 from .const import (
@@ -43,10 +43,10 @@ class TypeSafeConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            session = aiohttp_client.async_get_clientsession(self.hass)
+            http_client = httpx_client.get_async_client(self.hass)
             client = TypeSafeClient(
-                session=session,
                 api_key=user_input[CONF_API_KEY],
+                http_client=http_client,
                 model=user_input.get(CONF_MODEL, DEFAULT_MODEL),
             )
             try:
