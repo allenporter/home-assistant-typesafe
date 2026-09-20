@@ -8,9 +8,11 @@ from typing import Any
 
 from homeassistant.helpers import intent
 
-from ..engine import DecisionEngine
+from ..engine import DecisionEngine, PredictionResult
 from ..models import (
+    ChoiceAnswer,
     ChoiceQuestion,
+    NoulAnswer,
     NoulQuestion,
     Question,
 )
@@ -69,9 +71,9 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
             intent_type = getattr(handler, "intent_type", None)
             if not intent_type or not can_fulfill_intent(handler):
                 continue
-            desc = getattr(
-                handler, "description", ""
-            ) or CANONICAL_INTENT_DESCRIPTIONS.get(intent_type, intent_type)
+            desc = handler.description or CANONICAL_INTENT_DESCRIPTIONS.get(
+                intent_type, intent_type
+            )
             name_readable = intent_type.replace("Hass", " ")
             score = lexical_score(query_tokens, desc, utterance) + lexical_score(
                 query_tokens, name_readable, utterance
@@ -141,7 +143,7 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                         context.area_registry, "async_get_area"
                     ):
                         area = context.area_registry.async_get_area(entry.area_id)
-                        if area and getattr(area, "name", None):
+                        if area and area.name:
                             area_name = area.name
 
             name_score = lexical_score(query_tokens, friendly_name, utterance)
@@ -185,7 +187,7 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
             areas = context.area_registry.areas or {}
 
         for area in areas.values():
-            if not area or not getattr(area, "name", None):
+            if not area or not area.name:
                 continue
             score = lexical_score(query_tokens, area.name, utterance)
             id_score = lexical_score(query_tokens, area.id.replace("_", " "), utterance)
@@ -208,12 +210,11 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         primitive = answers.get(key)
         if primitive is None:
             return None
-        if hasattr(primitive, "choice"):
-            val = getattr(primitive, "choice")
-            return str(val) if val is not None else None
+        if isinstance(primitive, ChoiceAnswer):
+            return primitive.choice if primitive.choice else None
         if isinstance(primitive, dict):
             choice = primitive.get("choice")
-            if isinstance(choice, str):
+            if isinstance(choice, str) and choice:
                 return choice
         return None
 
@@ -238,7 +239,11 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         context: StrategyContext,
     ) -> Decision:
         """Safely parse and validate TypeSafe API evaluation response or PredictionResult."""
-        if not isinstance(response, dict) and not hasattr(response, "answers"):
+        if isinstance(response, PredictionResult):
+            answers: dict[str, Any] = response.answers
+        elif isinstance(response, dict) and isinstance(response.get("answers"), dict):
+            answers = response["answers"]
+        else:
             _LOGGER.warning(
                 "TypeSafe evaluation returned non-dict response (%s): %r",
                 type(response).__name__,
@@ -251,33 +256,13 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                 escalation_reason="Malformed TypeSafe response: expected JSON object",
             )
 
-        raw_answers: Any = None
-        if hasattr(response, "answers"):
-            raw_answers = getattr(response, "answers")
-        elif isinstance(response, dict):
-            raw_answers = response.get("answers")
-
-        if not isinstance(raw_answers, dict):
-            _LOGGER.warning(
-                "TypeSafe response missing or non-dict 'answers' object: %r", response
-            )
-            return Decision(
-                intent_name=None,
-                confidence=0.0,
-                should_escalate=True,
-                escalation_reason="Malformed TypeSafe response: missing answers dictionary",
-            )
-
-        answers: dict[str, Any] = raw_answers
-
         # 1. Check compound command condition safely
         compound_ans = answers.get("is_compound")
         compound_noul = 0.0
-        if compound_ans is not None:
-            if hasattr(compound_ans, "noul"):
-                compound_noul = self._safe_float(getattr(compound_ans, "noul"), 0.0)
-            elif isinstance(compound_ans, dict):
-                compound_noul = self._safe_float(compound_ans.get("noul"), 0.0)
+        if isinstance(compound_ans, NoulAnswer):
+            compound_noul = compound_ans.noul
+        elif isinstance(compound_ans, dict):
+            compound_noul = self._safe_float(compound_ans.get("noul"), 0.0)
 
         if compound_noul > self._compound_threshold:
             return Decision(
@@ -291,9 +276,29 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
 
         # 2. Check intent choice and confidence safely
         intent_ans = answers.get("intent")
-        if intent_ans is None or (
-            not isinstance(intent_ans, dict) and not hasattr(intent_ans, "choice")
-        ):
+        intent_choice: str | None = None
+        intent_conf = 0.0
+        probabilities: dict[str, float] = {}
+
+        if isinstance(intent_ans, ChoiceAnswer):
+            intent_choice = intent_ans.choice if intent_ans.choice else None
+            intent_conf = intent_ans.confidence
+            probabilities = {
+                str(k): self._safe_float(v, 0.0)
+                for k, v in intent_ans.probabilities.items()
+            }
+        elif isinstance(intent_ans, dict):
+            raw_choice = intent_ans.get("choice")
+            intent_choice = (
+                str(raw_choice) if isinstance(raw_choice, str) and raw_choice else None
+            )
+            intent_conf = self._safe_float(intent_ans.get("confidence"), 0.0)
+            raw_probs = intent_ans.get("probabilities")
+            if isinstance(raw_probs, dict):
+                probabilities = {
+                    str(k): self._safe_float(v, 0.0) for k, v in raw_probs.items()
+                }
+        else:
             _LOGGER.warning(
                 "Response missing or invalid 'intent' answer: %r", intent_ans
             )
@@ -304,31 +309,6 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                 escalation_reason="Missing or invalid intent answer",
                 raw_answers=answers,
             )
-
-        raw_choice = (
-            getattr(intent_ans, "choice")
-            if hasattr(intent_ans, "choice")
-            else intent_ans.get("choice")
-        )
-        intent_choice = (
-            str(raw_choice) if isinstance(raw_choice, str) and raw_choice else None
-        )
-        intent_conf = self._safe_float(
-            getattr(intent_ans, "confidence")
-            if hasattr(intent_ans, "confidence")
-            else intent_ans.get("confidence"),
-            0.0,
-        )
-
-        raw_probs = (
-            getattr(intent_ans, "probabilities")
-            if hasattr(intent_ans, "probabilities")
-            else intent_ans.get("probabilities")
-        )
-        probabilities: dict[str, float] = {}
-        if isinstance(raw_probs, dict):
-            for k, v in raw_probs.items():
-                probabilities[str(k)] = self._safe_float(v, 0.0)
 
         top_prob = intent_conf
         if intent_choice and intent_choice in probabilities:
@@ -424,8 +404,8 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         self,
         context: StrategyContext,
         utterance: str,
-    ) -> tuple[dict[str, Question], dict[str, Any]]:
-        """Build canonical Question objects and serialized dictionary representation."""
+    ) -> dict[str, Question]:
+        """Build canonical Question objects for speculative fan-out."""
         intent_criteria = self._discover_intents(context, utterance)
         area_criteria = self._rank_areas(context, utterance)
         entity_criteria = self._rank_entities(
@@ -442,39 +422,17 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
             ),
         }
 
-        serialized: dict[str, Any] = {
-            "intent": {
-                "type": "choice",
-                "instructions": "Determine the primary Home Assistant action",
-                "criteria": intent_criteria,
-            },
-            "is_compound": {
-                "type": "noul",
-                "instructions": "Does the request contain multiple distinct commands or conjunctions?",
-            },
-        }
-
         if len(entity_criteria) > 1:
             canonical["target_entity"] = ChoiceQuestion(
                 instructions="Which entity is the user referring to?",
                 criteria=entity_criteria,  # type: ignore[arg-type]
             )
-            serialized["target_entity"] = {
-                "type": "choice",
-                "instructions": "Which entity is the user referring to?",
-                "criteria": entity_criteria,
-            }
 
         if len(area_criteria) > 1:
             canonical["target_area"] = ChoiceQuestion(
                 instructions="Which area or room is the user referring to?",
                 criteria=area_criteria,  # type: ignore[arg-type]
             )
-            serialized["target_area"] = {
-                "type": "choice",
-                "instructions": "Which area or room is the user referring to?",
-                "criteria": area_criteria,
-            }
 
         if len(entity_criteria) > 1 and len(area_criteria) > 1:
             target_type_crit = {
@@ -485,13 +443,8 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                 instructions="Is the user targeting an individual device or an entire area?",
                 criteria=target_type_crit,
             )
-            serialized["target_type"] = {
-                "type": "choice",
-                "instructions": "Is the user targeting an individual device or an entire area?",
-                "criteria": target_type_crit,
-            }
 
-        return canonical, serialized
+        return canonical
 
     async def async_decide(
         self,
@@ -500,9 +453,7 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         context: StrategyContext,
     ) -> Decision:
         """Evaluate utterance using speculative fan-out typed questions."""
-        canonical_questions, _serialized_questions = self._build_questions(
-            context, text
-        )
+        canonical_questions = self._build_questions(context, text)
 
         state = {
             "utterance": text,

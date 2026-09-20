@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .const import DEFAULT_CONFIDENCE_THRESHOLD
@@ -42,16 +43,11 @@ class ChoiceQuestion(CanonicalChoiceQuestion):
         }
 
 
+@dataclass(slots=True, frozen=True)
 class NoulQuestion(CanonicalNoulQuestion):
-    """Noul question primitive."""
+    """Noul question primitive with optional criteria."""
 
-    def __init__(
-        self,
-        instructions: str | dict[str, Any] | list[Any],
-        criteria: dict[str, str] | None = None,
-    ) -> None:
-        super().__init__(instructions=instructions)
-        object.__setattr__(self, "_legacy_criteria", criteria)
+    criteria: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to API payload dict."""
@@ -59,9 +55,8 @@ class NoulQuestion(CanonicalNoulQuestion):
             "type": "noul",
             "instructions": self.instructions,
         }
-        legacy_crit = getattr(self, "_legacy_criteria", None)
-        if legacy_crit is not None:
-            payload["criteria"] = legacy_crit
+        if self.criteria is not None:
+            payload["criteria"] = self.criteria
         return payload
 
 

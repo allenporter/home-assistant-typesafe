@@ -177,7 +177,7 @@ def get_handler_slot_info(
             elif isinstance(key, vol.Marker) and isinstance(key.schema, str):
                 names.append(key.schema)
             elif isinstance(key, vol.Any):
-                for sub in getattr(key, "validators", []):
+                for sub in key.validators:
                     if isinstance(sub, str):
                         names.append(sub)
 
@@ -244,7 +244,7 @@ def discover_intents(
             desc = CANONICAL_INTENT_DESCRIPTIONS.get(intent_type)
             if not desc:
                 raw_desc = (
-                    getattr(handler, "description", None)
+                    handler.description
                     or handler.__doc__
                     or f"Handle {intent_type.replace('Hass', '').strip()}"
                 )
