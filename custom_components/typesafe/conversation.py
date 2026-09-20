@@ -14,9 +14,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar, entity_registry as er, intent
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .client import TypeSafeClient
 from .const import CONF_FALLBACK_AGENT, DOMAIN
 from .models import TypeSafeConfigEntry
+from .speculative.engine import DecisionEngine
 from .strategy import DecisionStrategy, StrategyContext
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ async def async_setup_entry(
     """Set up TypeSafe conversation entity."""
     entity = TypeSafeConversationEntity(
         entry=entry,
-        client=entry.runtime_data.client,
+        engine=entry.runtime_data.engine,
         strategy=entry.runtime_data.strategy,
     )
     async_add_entities([entity])
@@ -47,12 +47,12 @@ class TypeSafeConversationEntity(
     def __init__(
         self,
         entry: TypeSafeConfigEntry,
-        client: TypeSafeClient,
+        engine: DecisionEngine,
         strategy: DecisionStrategy,
     ) -> None:
         """Initialize the conversation entity."""
         self._entry = entry
-        self._client = client
+        self._engine = engine
         self._strategy = strategy
         self._attr_unique_id = entry.entry_id
         self._attr_name = entry.title
@@ -100,7 +100,7 @@ class TypeSafeConversationEntity(
         )
 
         decision = await self._strategy.async_decide(
-            self._client, user_input.text, context
+            self._engine, user_input.text, context
         )
 
         if decision.should_escalate or not decision.intent_name:

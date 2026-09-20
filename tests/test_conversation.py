@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from typing import cast
+import pytest
+from custom_components.typesafe.client import (
+    TypeSafeAuthError,
+    TypeSafeError,
+    TypeSafeRateLimitError,
+)
+
 from homeassistant.components import conversation
 from homeassistant.components.homeassistant.exposed_entities import (
     async_expose_entity,
@@ -475,3 +483,1446 @@ async def test_intent_handle_error_handling(
     assert "Hardware communication failure" in str(
         result.response.speech["plain"]["speech"]
     )
+
+
+async def test_confidence_exact_threshold_boundary(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test confidence exactly at threshold (0.70) executes, not escalates."""
+    hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.70,
+                "probabilities": {"HassTurnOn": 0.70},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 0.70},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+
+
+async def test_confidence_just_below_threshold(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test confidence just below threshold (0.699) escalates / returns NO_INTENT_MATCH."""
+    hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.699,
+                "probabilities": {"HassTurnOn": 0.699},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 0.699},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_confidence_zero(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test confidence of 0.0 correctly escalates."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.0,
+                "probabilities": {"HassTurnOn": 0.0},
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_confidence_one(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test confidence of 1.0 executes successfully."""
+    hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 1.0,
+                "probabilities": {"HassTurnOn": 1.0},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 1.0},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+
+
+async def test_threshold_configured_as_zero(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test when confidence_threshold is configured as 0.0 in options."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={CONF_CONFIDENCE_THRESHOLD: 0.0},
+    )
+    await hass.async_block_till_done()
+
+    hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.05,
+                "probabilities": {"HassTurnOn": 0.05},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 0.05},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+
+
+async def test_threshold_configured_as_one(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test when confidence_threshold is configured as 1.0 in options."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={CONF_CONFIDENCE_THRESHOLD: 1.0},
+    )
+    await hass.async_block_till_done()
+
+    hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
+    # 0.999 should fail
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.999,
+                "probabilities": {"HassTurnOn": 0.999},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 0.999},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+
+    # 1.0 should succeed
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 1.0,
+                "probabilities": {"HassTurnOn": 1.0},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 1.0},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    result2 = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result2.response.response_type is intent.IntentResponseType.ACTION_DONE
+
+
+# ==============================================================================
+# 2. Empty or Missing Friendly Names / Entity Attributes
+# ==============================================================================
+
+
+async def test_entity_missing_friendly_name_attribute(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Probe entity with completely empty attributes dict (no friendly_name)."""
+    hass.states.async_set("light.kitchen_lights", "off", {})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {
+                "choice": "light.kitchen_lights",
+                "confidence": 0.95,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on the kitchen lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+    intent_obj = handler.handled_intents[0]
+    slot_name = intent_obj.slots.get("name", {}).get("value")
+    assert slot_name is not None, f"Expected non-None slot_name, got {slot_name!r}"
+    assert slot_name in ("kitchen lights", "Kitchen lights", "light.kitchen_lights")
+
+
+async def test_entity_friendly_name_is_empty_string(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Probe entity with friendly_name == ''."""
+    hass.states.async_set("light.kitchen_lights", "off", {"friendly_name": ""})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {
+                "choice": "light.kitchen_lights",
+                "confidence": 0.95,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on the kitchen lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+    intent_obj = handler.handled_intents[0]
+    slot_name = intent_obj.slots.get("name", {}).get("value")
+    assert slot_name, f"Expected non-empty slot_name, got {slot_name!r}"
+
+
+async def test_entity_friendly_name_is_none(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Probe entity with friendly_name attribute explicitly set to None."""
+    hass.states.async_set("light.kitchen_lights", "off", {"friendly_name": None})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {
+                "choice": "light.kitchen_lights",
+                "confidence": 0.95,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on the kitchen lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+    intent_obj = handler.handled_intents[0]
+    slot_name = intent_obj.slots.get("name", {}).get("value")
+    assert slot_name is not None, f"Expected non-None slot_name, got {slot_name!r}"
+
+
+# ==============================================================================
+# 3. Fallback Agent Configured vs Not Configured Edge Cases
+# ==============================================================================
+
+
+async def test_fallback_agent_nonexistent(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Probe fallback agent configured to an ID that does not exist in HA."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_FALLBACK_AGENT: "non_existent_agent_xyz",
+        },
+    )
+    await hass.async_block_till_done()
+
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "unmatched",
+                "confidence": 0.99,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Hello world",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_client_evaluation_error_with_fallback(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+) -> None:
+    """Probe API client exception triggers escalation when fallback is configured."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_FALLBACK_AGENT: "mock_fallback_agent",
+        },
+    )
+    await hass.async_block_till_done()
+
+    mock_client.evaluate_error = TypeSafeError("API 500 error")
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on the lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert len(mock_fallback_agent.calls) == 1
+    assert "Fallback response:" in result.response.speech["plain"]["speech"]
+
+
+async def test_client_evaluation_error_without_fallback(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Probe API client exception returns NO_INTENT_MATCH error when no fallback is configured."""
+    mock_client.evaluate_error = TypeSafeError("API connection timeout")
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on the lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+# ==============================================================================
+# 4. Unmatched Intent Strings & Unparsable / Malformed Responses
+# ==============================================================================
+
+
+@pytest.mark.parametrize(
+    "unmatched_choice",
+    [
+        "unmatched",
+        "none",
+        "other",
+        "",
+        None,
+    ],
+)
+async def test_unmatched_intent_strings(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    unmatched_choice: str | None,
+) -> None:
+    """Test all variants of unmatched intent choices."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": unmatched_choice,
+                "confidence": 0.99,
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Sing a song",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_unparseable_response_answers_none(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test API response where answers field is None: {'model': '...', 'answers': None}."""
+    mock_client.answers = None
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_unparseable_response_intent_none(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test API response where answers has {'intent': None}."""
+    mock_client.set_answers(
+        {
+            "intent": None,
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_unparseable_response_is_compound_none(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test API response where answers has {'is_compound': None} defaults to non-compound."""
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "HassTurnOn", "confidence": 0.95},
+            "is_compound": None,
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type in (
+        intent.IntentResponseType.ACTION_DONE,
+        intent.IntentResponseType.ERROR,
+    )
+
+
+async def test_unparseable_response_probabilities_none(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test API response where probabilities is None falls back to intent confidence."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": None,
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type in (
+        intent.IntentResponseType.ACTION_DONE,
+        intent.IntentResponseType.ERROR,
+    )
+
+
+# ==============================================================================
+# 5. Compound Command Boundary Probes
+# ==============================================================================
+
+
+@pytest.mark.parametrize(
+    "noul,should_compound",
+    [
+        (0.50, False),  # Exactly at compound threshold 0.5 -> not compound
+        (0.5001, True),  # Just above 0.5 -> compound
+        (0.4999, False),  # Just below 0.5 -> not compound
+        (1.0, True),  # Maximum compound probability
+        (0.0, False),  # Minimum compound probability
+    ],
+)
+async def test_compound_noul_boundary(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+    noul: float,
+    should_compound: bool,
+) -> None:
+    """Test compound boundary: compound_threshold is 0.5."""
+    hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {"choice": "light.test_light", "confidence": 0.95},
+            "is_compound": {"noul": noul},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on test light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    if should_compound:
+        assert result.response.response_type is intent.IntentResponseType.ERROR
+        assert "multiple requests" in result.response.speech["plain"]["speech"]
+    else:
+        assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+
+
+@pytest.mark.parametrize(
+    "client_error",
+    [
+        TypeSafeAuthError("Invalid API key (401)"),
+        TypeSafeRateLimitError("Rate limit exceeded (429)"),
+        TypeSafeError("Unprocessable Entity (422)"),
+        TypeSafeError("Site Overloaded (529)"),
+        TypeSafeError("Request failed: Timeout"),
+    ],
+)
+async def test_conversation_api_errors_with_fallback(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+    client_error: Exception,
+) -> None:
+    """Verify all API client errors (401, 422, 429, 529, timeout) gracefully escalate to fallback agent."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_FALLBACK_AGENT: "mock_fallback_agent",
+        },
+    )
+    await hass.async_block_till_done()
+
+    mock_client.evaluate_error = client_error
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on living room light",
+        conversation_id="test_conv",
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert len(mock_fallback_agent.calls) == 1
+    assert mock_fallback_agent.calls[0].text == "Turn on living room light"
+    assert "Fallback response:" in result.response.speech["plain"]["speech"]
+
+
+@pytest.mark.parametrize(
+    "client_error",
+    [
+        TypeSafeAuthError("Invalid API key (401)"),
+        TypeSafeRateLimitError("Rate limit exceeded (429)"),
+        TypeSafeError("Unprocessable Entity (422)"),
+        TypeSafeError("Site Overloaded (529)"),
+        TypeSafeError("Request failed: Timeout"),
+    ],
+)
+async def test_conversation_api_errors_no_fallback(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    client_error: Exception,
+) -> None:
+    """Verify all API client errors without fallback return NO_INTENT_MATCH without uncaught crash."""
+    mock_client.evaluate_error = client_error
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on living room light",
+        conversation_id="test_conv",
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+# ==============================================================================
+# 3. Speculative Fan-out Questions When No Entities or Areas Exist
+# ==============================================================================
+
+
+async def test_speculative_fan_out_zero_entities_zero_areas(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify questions constructed when Home Assistant has NO entities and NO areas."""
+    # Ensure no entities or areas exist
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "unmatched", "confidence": 0.99},
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on something",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert len(mock_client.calls) == 1
+    questions = mock_client.calls[0]["questions"]
+
+    # Must contain intent and is_compound
+    assert "intent" in questions
+    assert "is_compound" in questions
+
+    # Must NOT contain target_entity or target_area or target_type
+    assert "target_entity" not in questions
+    assert "target_area" not in questions
+    assert "target_type" not in questions
+
+
+async def test_speculative_fan_out_with_areas_only(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify questions constructed when areas exist but NO controllable entities exist."""
+    area_reg = ar.async_get(hass)
+    area = area_reg.async_create("Living Room")
+
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "unmatched", "confidence": 0.99},
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on living room",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert len(mock_client.calls) == 1
+    questions = mock_client.calls[0]["questions"]
+
+    assert "intent" in questions
+    assert "is_compound" in questions
+    # target_area has the area + "none" = 2 choices (> 1)
+    assert "target_area" in questions
+    assert area.id in questions["target_area"]["criteria"]
+    assert "none" in questions["target_area"]["criteria"]
+
+    # target_entity and target_type must NOT be present
+    assert "target_entity" not in questions
+    assert "target_type" not in questions
+
+
+async def test_speculative_fan_out_with_entities_only(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify questions constructed when controllable entities exist but NO areas exist."""
+    hass.states.async_set("light.hallway", "off", {"friendly_name": "Hallway Light"})
+
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "unmatched", "confidence": 0.99},
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on hallway light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert len(mock_client.calls) == 1
+    questions = mock_client.calls[0]["questions"]
+
+    assert "intent" in questions
+    assert "is_compound" in questions
+    # target_entity has the entity + "none" = 2 choices (> 1)
+    assert "target_entity" in questions
+    assert "light.hallway" in questions["target_entity"]["criteria"]
+    assert "none" in questions["target_entity"]["criteria"]
+
+    # target_area and target_type must NOT be present
+    assert "target_area" not in questions
+    assert "target_type" not in questions
+
+
+async def test_execution_when_intent_matches_but_zero_entities_exist(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Verify behavior when model returns HassTurnOn but no entities exist in HA."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on the lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+    # In this case, HassTurnOn is dispatched with empty slots (no name, no entity, no area)
+    # The intent handler executes or handles it.
+    handler = mock_intent_handlers["HassTurnOn"]
+    assert isinstance(handler, MockTurnOnIntentHandler)
+    assert len(handler.handled_intents) == 1
+    assert handler.handled_intents[0].slots == {}
+
+
+# ==============================================================================
+# 4. Multi-Intent / Compound Utterance Escalation
+# ==============================================================================
+
+
+async def test_compound_utterance_precedence_over_intent(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Verify compound detection takes strict precedence over high intent confidence."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_FALLBACK_AGENT: "mock_fallback_agent",
+        },
+    )
+    await hass.async_block_till_done()
+
+    # Even though HassTurnOn has 0.99 confidence, is_compound is 0.85
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.99,
+                "probabilities": {"HassTurnOn": 0.99},
+            },
+            "is_compound": {"noul": 0.85},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on kitchen lights and lock the front door",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    # Intent handler must NOT have been called!
+    handler = mock_intent_handlers["HassTurnOn"]
+    assert isinstance(handler, MockTurnOnIntentHandler)
+    assert len(handler.handled_intents) == 0
+
+    # Must escalate to fallback agent
+    assert len(mock_fallback_agent.calls) == 1
+    assert "Fallback response:" in result.response.speech["plain"]["speech"]
+
+
+@pytest.mark.parametrize(
+    ("noul_value", "should_escalate_as_compound"),
+    [
+        (0.50, False),  # 0.50 is not > 0.50
+        (0.51, True),  # 0.51 is > 0.50
+        (0.49, False),  # 0.49 is not > 0.50
+    ],
+)
+async def test_compound_boundary_threshold(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+    noul_value: float,
+    should_escalate_as_compound: bool,
+) -> None:
+    """Verify the 0.5 threshold boundary for compound detection."""
+    _ = mock_intent_handlers
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "is_compound": {"noul": noul_value},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on the lights and maybe music",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    if should_escalate_as_compound:
+        assert result.response.response_type is intent.IntentResponseType.ERROR
+        assert "multiple requests" in result.response.speech["plain"]["speech"]
+    else:
+        assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+
+
+# ==============================================================================
+# 5. Empirical Bug Reproductions (Challenger Findings)
+# ==============================================================================
+
+
+async def test_defensive_null_compound_answer_handled_gracefully(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify null is_compound answer does not crash and defaults to non-compound execution."""
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "HassTurnOn", "confidence": 0.95},
+            "is_compound": None,
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type in (
+        intent.IntentResponseType.ACTION_DONE,
+        intent.IntentResponseType.ERROR,
+    )
+
+
+async def test_defensive_null_intent_answer_handled_gracefully(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify null intent answer does not crash and escalates/returns NO_INTENT_MATCH."""
+    mock_client.set_answers(
+        {
+            "intent": None,
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_defensive_missing_friendly_name_populates_slot(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Verify entity with no friendly_name attribute populates name slot using fallback."""
+    hass.states.async_set("light.kitchen_strip", "off", {})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {
+                "choice": "light.kitchen_strip",
+                "confidence": 0.95,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on kitchen strip",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    handler = mock_intent_handlers["HassTurnOn"]
+    assert isinstance(handler, MockTurnOnIntentHandler)
+    assert len(handler.handled_intents) == 1
+    intent_obj = handler.handled_intents[0]
+    slot_val = intent_obj.slots["name"]["value"]
+    assert slot_val is not None
+    assert slot_val in ("kitchen strip", "Kitchen strip", "light.kitchen_strip")
+
+
+async def test_defensive_nonexistent_fallback_agent_handled_gracefully(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify nonexistent fallback_agent is caught and returns NO_INTENT_MATCH error without uncaught crash."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_FALLBACK_AGENT: "non_existent_agent_xyz",
+        },
+    )
+    await hass.async_block_till_done()
+
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "unmatched", "confidence": 0.99},
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on the music",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_defensive_intent_unexpected_error_caught_as_failed_to_handle(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify IntentUnexpectedError is caught by conversation.py and formatted as FAILED_TO_HANDLE."""
+
+    class UnexpectedErrorHandler(intent.IntentHandler):
+        intent_type = "HassTurnOn"
+
+        async def async_handle(
+            self, intent_obj: intent.Intent
+        ) -> intent.IntentResponse:
+            raise intent.IntentUnexpectedError("Hardware device exploded")
+
+    intent.async_register(hass, UnexpectedErrorHandler())
+
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on the lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.FAILED_TO_HANDLE
+    assert "Hardware device exploded" in str(result.response.speech["plain"]["speech"])
+
+
+@pytest.mark.parametrize(
+    "client_exc",
+    [
+        TypeSafeAuthError("Invalid API key"),
+        TypeSafeRateLimitError("Rate limit exceeded"),
+        TypeSafeError("Overloaded (529)"),
+        TypeSafeError("Unprocessable (422)"),
+        TypeSafeError("Request failed: timeout"),
+    ],
+)
+async def test_conversation_handles_all_client_errors_with_and_without_fallback(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+    client_exc: Exception,
+) -> None:
+    """Verify conversation pipeline degrades cleanly on all client errors."""
+    mock_client.evaluate_error = client_exc
+
+    # 1. Without fallback agent configured
+    result_no_fallback = await conversation.async_converse(
+        hass=hass,
+        text="Turn on kitchen light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result_no_fallback.response.response_type is intent.IntentResponseType.ERROR
+    assert (
+        result_no_fallback.response.error_code
+        is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+    )
+
+    # 2. With fallback agent configured
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_FALLBACK_AGENT: "mock_fallback_agent",
+        },
+    )
+    await hass.async_block_till_done()
+
+    result_with_fallback = await conversation.async_converse(
+        hass=hass,
+        text="Turn on kitchen light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert (
+        result_with_fallback.response.response_type
+        is intent.IntentResponseType.ACTION_DONE
+    )
+    assert (
+        "Fallback response" in result_with_fallback.response.speech["plain"]["speech"]
+    )
+    assert len(mock_fallback_agent.calls) == 1
+
+
+# ==============================================================================
+# 3. 0 exposed entities and 0 areas
+# ==============================================================================
+
+
+async def test_zero_exposed_entities_and_zero_areas_question_schema(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Verify questions payload when 0 entities are exposed and 0 areas exist."""
+    # Ensure no areas exist
+    area_reg = ar.async_get(hass)
+    assert len(area_reg.areas) == 0
+
+    # Ensure no controllable entities exist in HA states
+    from custom_components.typesafe.strategy import CONTROLLABLE_DOMAINS
+
+    controllable_count = sum(
+        1 for s in hass.states.async_all() if s.domain in CONTROLLABLE_DOMAINS
+    )
+    assert controllable_count == 0
+
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on everything",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    # Inspect the questions sent to TypeSafe
+    assert len(mock_client.calls) == 1
+    questions = mock_client.calls[0]["questions"]
+
+    # Must contain intent and is_compound
+    assert "intent" in questions
+    assert "is_compound" in questions
+
+    # Must NOT contain target_entity, target_area, or target_type
+    assert "target_entity" not in questions
+    assert "target_area" not in questions
+    assert "target_type" not in questions
+
+    # Intent criteria must have at least 2 choices
+    assert len(questions["intent"]["criteria"]) >= 2
+    assert "unmatched" in questions["intent"]["criteria"]
+    assert "HassTurnOn" in questions["intent"]["criteria"]
+
+    # Intent executes successfully without slots
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+    assert handler.handled_intents[0].slots == {}
+
+
+async def test_non_controllable_entities_are_excluded_from_criteria(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify sensor/weather domains are excluded from target_entity questions."""
+    hass.states.async_set("sensor.outdoor_temperature", "21.5")
+    hass.states.async_set("weather.home", "sunny")
+
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "unmatched", "confidence": 0.99},
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    await conversation.async_converse(
+        hass=hass,
+        text="What is the weather?",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    questions = mock_client.calls[0]["questions"]
+    # Because there are no controllable entities, target_entity must be omitted
+    assert "target_entity" not in questions
+
+
+# ==============================================================================
+# 4. Dynamic reload on options update
+# ==============================================================================
+
+
+async def test_dynamic_reload_confidence_threshold_and_fallback(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Verify options update dynamically reloads confidence threshold and fallback agent."""
+    hass.states.async_set(
+        "light.living_room", "off", {"friendly_name": "Living Room Light"}
+    )
+
+    # Setup: Utterance with confidence 0.75
+    # Default threshold is 0.70 -> Should succeed
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.75,
+                "probabilities": {"HassTurnOn": 0.75},
+            },
+            "target_entity": {
+                "choice": "light.living_room",
+                "confidence": 0.75,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    res1 = await conversation.async_converse(
+        hass=hass,
+        text="Turn on living room light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert res1.response.response_type is intent.IntentResponseType.ACTION_DONE
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+
+    # Update 1: Raise threshold to 0.85 (without fallback agent)
+    # The same 0.75 confidence utterance should now be rejected as NO_INTENT_MATCH
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_CONFIDENCE_THRESHOLD: 0.85,
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert config_entry.runtime_data.strategy.confidence_threshold == 0.85
+
+    res2 = await conversation.async_converse(
+        hass=hass,
+        text="Turn on living room light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert res2.response.response_type is intent.IntentResponseType.ERROR
+    assert res2.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+    # Update 2: Configure fallback agent
+    # The same 0.75 confidence utterance should now escalate to the fallback agent
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            CONF_CONFIDENCE_THRESHOLD: 0.85,
+            CONF_FALLBACK_AGENT: "mock_fallback_agent",
+        },
+    )
+    await hass.async_block_till_done()
+
+    res3 = await conversation.async_converse(
+        hass=hass,
+        text="Turn on living room light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert res3.response.response_type is intent.IntentResponseType.ACTION_DONE
+    assert (
+        "Fallback response: Turn on living room light"
+        in res3.response.speech["plain"]["speech"]
+    )
+    assert len(mock_fallback_agent.calls) == 1
+
+
+# ==============================================================================
+# 5. Additional Boundary & Edge Case Stress Probes
+# ==============================================================================
+
+
+async def test_empty_utterance_handling(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify empty or whitespace utterances do not crash strategy or conversation."""
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "unmatched", "confidence": 0.99},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="   ",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_target_entity_not_in_states_falls_back_to_entity_id(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Verify target entity not registered in hass states passes entity_id as slot name."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {
+                "choice": "light.phantom_device",
+                "confidence": 0.95,
+            },
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on phantom device",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+    handler = cast(MockTurnOnIntentHandler, mock_intent_handlers["HassTurnOn"])
+    assert len(handler.handled_intents) == 1
+    assert handler.handled_intents[0].slots["name"]["value"] == "light.phantom_device"
+
+
+async def test_empty_answers_dict_escalates(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Verify completely empty answers dict {} escalates gracefully without crash."""
+    mock_client.set_answers({})
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Turn on lights",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH

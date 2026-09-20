@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_CONFIDENCE_THRESHOLD,
     DEFAULT_MODEL,
 )
+from .engine import TypeSafeDecisionEngine
 from .models import TypeSafeConfigEntry, TypeSafeData
 from .strategy import DecisionStrategy
 
@@ -37,9 +38,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TypeSafeConfigEntry) -> 
 
     session = aiohttp_client.async_get_clientsession(hass)
     client = TypeSafeClient(session=session, api_key=api_key, model=model)
+    engine = TypeSafeDecisionEngine(client=client)
     strategy = DecisionStrategy(confidence_threshold=confidence_threshold)
 
-    entry.runtime_data = TypeSafeData(client=client, strategy=strategy)
+    entry.runtime_data = TypeSafeData(client=client, engine=engine, strategy=strategy)
 
     await hass.config_entries.async_forward_entry_setups(
         entry,

@@ -22,8 +22,17 @@ from custom_components.typesafe.client import (
 )
 
 
+@pytest.fixture(name="client")
+async def client_fixture(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> TypeSafeClient:
+    """Fixture providing a TypeSafeClient initialized with hass clientsession."""
+    session = aiohttp_client.async_get_clientsession(hass)
+    return TypeSafeClient(session=session, api_key="valid-key")
+
+
 async def test_client_validate_key_success(
-    hass: HomeAssistant,
+    client: TypeSafeClient,
     aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test validate_key succeeds on HTTP 200."""
@@ -32,8 +41,6 @@ async def test_client_validate_key_success(
         status=200,
         json={"models": [{"name": "jev-latest"}]},
     )
-    session = aiohttp_client.async_get_clientsession(hass)
-    client = TypeSafeClient(session=session, api_key="valid-key")
     result = await client.async_validate_key()
     assert result is True
 
@@ -55,7 +62,7 @@ async def test_client_validate_key_unauthorized(
 
 
 async def test_client_validate_key_server_error(
-    hass: HomeAssistant,
+    client: TypeSafeClient,
     aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test validate_key raises TypeSafeError on HTTP 500."""
@@ -63,14 +70,12 @@ async def test_client_validate_key_server_error(
         "https://api.typesafe.ai/v1/models",
         status=500,
     )
-    session = aiohttp_client.async_get_clientsession(hass)
-    client = TypeSafeClient(session=session, api_key="valid-key")
     with pytest.raises(TypeSafeError, match="Validation failed with status 500"):
         await client.async_validate_key()
 
 
 async def test_client_evaluate_success(
-    hass: HomeAssistant,
+    client: TypeSafeClient,
     aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test evaluate succeeds on HTTP 200."""
@@ -84,8 +89,6 @@ async def test_client_evaluate_success(
             },
         },
     )
-    session = aiohttp_client.async_get_clientsession(hass)
-    client = TypeSafeClient(session=session, api_key="valid-key")
     res = await client.async_evaluate(
         state="turn on kitchen light",
         questions={"intent": {"type": "choice", "instructions": "Intent"}},
@@ -112,7 +115,7 @@ async def test_client_evaluate_auth_error(
 
 
 async def test_client_evaluate_rate_limit(
-    hass: HomeAssistant,
+    client: TypeSafeClient,
     aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test evaluate raises TypeSafeRateLimitError on HTTP 429."""
@@ -121,8 +124,6 @@ async def test_client_evaluate_rate_limit(
         status=429,
         headers={"Retry-After": "30"},
     )
-    session = aiohttp_client.async_get_clientsession(hass)
-    client = TypeSafeClient(session=session, api_key="valid-key")
     with pytest.raises(TypeSafeRateLimitError, match="Rate limited"):
         await client.async_evaluate(
             state="turn on light",
@@ -131,7 +132,7 @@ async def test_client_evaluate_rate_limit(
 
 
 async def test_client_evaluate_server_error(
-    hass: HomeAssistant,
+    client: TypeSafeClient,
     aioclient_mock: AiohttpClientMocker,
 ) -> None:
     """Test evaluate raises TypeSafeError on HTTP 500."""
@@ -140,8 +141,6 @@ async def test_client_evaluate_server_error(
         status=500,
         text="Internal Server Error",
     )
-    session = aiohttp_client.async_get_clientsession(hass)
-    client = TypeSafeClient(session=session, api_key="valid-key")
     with pytest.raises(TypeSafeError, match="failed"):
         await client.async_evaluate(
             state="turn on light",
@@ -159,3 +158,93 @@ async def test_client_evaluate_timeout() -> None:
             state="turn on light",
             questions={},
         )
+
+
+async def test_client_evaluate_422_unprocessable_entity(
+    client: TypeSafeClient,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test evaluate raises TypeSafeError on HTTP 422 Unprocessable Entity."""
+    aioclient_mock.post(
+        "https://api.typesafe.ai/v1/systemone",
+        status=422,
+        text='{"error": "criteria must have at least 2 choices"}',
+    )
+    with pytest.raises(TypeSafeError, match="422"):
+        await client.async_evaluate(
+            state="turn on lights",
+            questions={},
+        )
+
+
+async def test_client_evaluate_529_overloaded(
+    client: TypeSafeClient,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test evaluate raises TypeSafeError on HTTP 529 Overloaded."""
+    aioclient_mock.post(
+        "https://api.typesafe.ai/v1/systemone",
+        status=529,
+        text='{"error": "Site is temporarily overloaded"}',
+    )
+    with pytest.raises(TypeSafeError, match="529"):
+        await client.async_evaluate(
+            state="turn on lights",
+            questions={},
+        )
+
+
+async def test_client_validate_key_422(
+    client: TypeSafeClient,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test validate_key raises TypeSafeError on HTTP 422."""
+    aioclient_mock.get(
+        "https://api.typesafe.ai/v1/models",
+        status=422,
+    )
+    with pytest.raises(TypeSafeError, match="422"):
+        await client.async_validate_key()
+
+
+async def test_client_validate_key_529(
+    client: TypeSafeClient,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test validate_key raises TypeSafeError on HTTP 529."""
+    aioclient_mock.get(
+        "https://api.typesafe.ai/v1/models",
+        status=529,
+    )
+    with pytest.raises(TypeSafeError, match="529"):
+        await client.async_validate_key()
+
+
+async def test_client_evaluate_rate_limit_without_retry_header(
+    client: TypeSafeClient,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test evaluate handles HTTP 429 when Retry-After header is omitted."""
+    aioclient_mock.post(
+        "https://api.typesafe.ai/v1/systemone",
+        status=429,
+    )
+    with pytest.raises(TypeSafeRateLimitError, match="None"):
+        await client.async_evaluate(
+            state="turn on lights",
+            questions={},
+        )
+
+
+async def test_client_evaluate_malformed_json_syntax(
+    client: TypeSafeClient,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Test evaluate raises TypeSafeError when response body is not valid JSON."""
+    aioclient_mock.post(
+        "https://api.typesafe.ai/v1/systemone",
+        status=200,
+        text="<html>Internal Gateway Timeout</html>",
+    )
+    with pytest.raises(TypeSafeError, match=r"Request failed|Invalid JSON"):
+        await client.async_evaluate(state="turn on lights", questions={})

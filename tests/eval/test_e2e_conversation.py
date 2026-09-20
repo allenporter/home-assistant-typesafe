@@ -85,22 +85,25 @@ class MockClimateIntentHandler(MockBaseIntentHandler):
         return res
 
 
-# ==============================================================================
-# TIER 1: FEATURE COVERAGE ACROSS ALL 16 FEATURES IN ISOLATION (80 TESTS)
-# ==============================================================================
+@pytest.fixture(name="climate_handler")
+def climate_handler_fixture(hass: HomeAssistant) -> MockClimateIntentHandler:
+    """Fixture to register and return a MockClimateIntentHandler."""
+    handler = MockClimateIntentHandler()
+    intent.async_register(hass, handler)
+    return handler
 
-# --- F1: Component Manifest & Lifecycle ---
+
+MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "custom_components"
+    / "typesafe"
+    / "manifest.json"
+)
 
 
-async def test_tier1_f1_manifest_metadata() -> None:
-    """F1.1: Verify component manifest metadata conforms to specification."""
-    manifest_path = (
-        Path(__file__).parent.parent
-        / "custom_components"
-        / "typesafe"
-        / "manifest.json"
-    )
-    with manifest_path.open() as fp:
+async def test_manifest_metadata() -> None:
+    """Verify component manifest metadata conforms to specification."""
+    with MANIFEST_PATH.open() as fp:
         data = json.load(fp)
     assert data["domain"] == "typesafe"
     assert data["name"] == "TypeSafe"
@@ -800,10 +803,10 @@ async def test_tier1_f9_supported_slots_filter_admits_standard_intents(
 
 async def test_tier1_f9_custom_intent_handler_discovered(
     hass: HomeAssistant,
+    climate_handler: MockClimateIntentHandler,
 ) -> None:
     """F9.5: Verify dynamically registered intent handler is discovered by strategy."""
-    custom_handler = MockClimateIntentHandler()
-    intent.async_register(hass, custom_handler)
+    _ = climate_handler
     strategy = DecisionStrategy()
     ctx = StrategyContext(
         hass=hass,
@@ -1243,10 +1246,10 @@ async def test_tier1_f13_temperature_regex_extraction(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
+    climate_handler: MockClimateIntentHandler,
 ) -> None:
     """F13.5: Verify temperature regex extraction populates temperature slot."""
-    handler = MockClimateIntentHandler()
-    intent.async_register(hass, handler)
+    handler = climate_handler
     hass.states.async_set(
         "climate.living_room", "heat", {"friendly_name": "Living Room AC"}
     )
@@ -2940,10 +2943,10 @@ async def test_tier2_f13_temperature_with_decimal(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
+    climate_handler: MockClimateIntentHandler,
 ) -> None:
     """F13.B4: Decimal temperature representation parsed as float."""
-    handler = MockClimateIntentHandler()
-    intent.async_register(hass, handler)
+    handler = climate_handler
     hass.states.async_set("climate.hvac", "heat", {"friendly_name": "HVAC"})
     mock_client.set_answers(
         {
@@ -3885,10 +3888,10 @@ async def test_tier3_pairwise_f13_resolution_and_f14_execution_numeric_temperatu
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
+    climate_handler: MockClimateIntentHandler,
 ) -> None:
     """Pair 16 (F13+F14): Regex-extracted temperature slot passed into climate intent handling."""
-    handler = MockClimateIntentHandler()
-    intent.async_register(hass, handler)
+    handler = climate_handler
     hass.states.async_set("climate.nest", "heat", {"friendly_name": "Nest Thermostat"})
     mock_client.set_answers(
         {
