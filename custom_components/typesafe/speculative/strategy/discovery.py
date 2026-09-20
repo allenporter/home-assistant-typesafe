@@ -1,4 +1,31 @@
-"""Candidate discovery, token matching, and slot inspection heuristics."""
+"""Smart home candidate discovery, token matching, and slot inspection heuristics.
+
+This module acts as the semantic bridge projecting live Home Assistant smart home state
+(entities, areas, devices, and registered intent handlers) into bounded, structured
+choice sets suitable for TypeSafe System One speculative decision strategies.
+
+Background & Motivation:
+    In a typical smart home, Home Assistant may manage hundreds of entity states across
+    dozens of physical rooms alongside dozens of registered intent handlers. Directly
+    sending an exhaustive list of all entities and actions to an LLM or decision engine
+    on every forward pass is computationally prohibitive, inflates token cost and latency,
+    and increases decision confusion.
+
+    The discovery heuristics in this module solve this by performing fast, local, offline
+    candidate retrieval and pruning tailored to the user's utterance before invoking the
+    decision engine:
+    1. Intent Discovery: Introspects registered Home Assistant `IntentHandler` instances,
+       verifies that required slots can be satisfied by the strategy (`can_fulfill_intent`),
+       and ranks matching candidate intents.
+    2. Area Ranking: Matches tokens against registered Home Assistant area names to identify
+       rooms explicitly or implicitly targeted by the speaker.
+    3. Entity Ranking with Area Boosting: Filters down to controllable domains, matches entity
+       friendly names and IDs against utterance tokens, and applies a multi-tier score boost
+       for devices located within the top-ranked target areas.
+
+The resulting candidate mappings directly populate the `criteria` attributes of
+canonical `ChoiceQuestion` primitives evaluated by `SpeculativeFanOutStrategy`.
+"""
 
 from __future__ import annotations
 
@@ -29,10 +56,12 @@ CONTROLLABLE_DOMAINS: frozenset[str] = frozenset(
         "water_heater",
     }
 )
+"""Home Assistant entity domains that support direct speculative voice control actions."""
 
 SUPPORTED_STRATEGY_SLOTS: frozenset[str] = frozenset(
     {"name", "area", "domain", "floor", "device_class", "brightness", "temperature"}
 )
+"""Slots that the speculative fan-out strategy is capable of extracting and populating."""
 
 CANONICAL_INTENT_DESCRIPTIONS: dict[str, str] = {
     "HassTurnOn": "Turn on or activate a device, light, or appliance",
@@ -41,15 +70,35 @@ CANONICAL_INTENT_DESCRIPTIONS: dict[str, str] = {
     "HassLightSet": "Set brightness, dim, or change color of lights",
     "HassClimateSetTemperature": "Set target temperature for thermostat or climate device",
 }
+"""High-quality canonical descriptions used as Choice criteria labels for standard Home Assistant intents."""
 
 
 def tokenize(text: str) -> set[str]:
-    """Tokenize a string into lowercase alphanumeric words."""
+    """Tokenize a string into a set of unique lowercase alphanumeric words.
+
+    Args:
+        text: Raw input string to tokenize.
+
+    Returns:
+        A set of lowercase alphanumeric token strings with punctuation stripped.
+    """
     return set(re.findall(r"\b\w+\b", text.lower()))
 
 
 def token_match(q_token: str, cand_token: str) -> bool:
-    """Check if query token matches candidate token via equality or prefix/stem matching."""
+    """Check if query token matches candidate token via equality or prefix/stem matching.
+
+    Matches either if the tokens are strictly equal, or if both tokens are at least 3
+    characters long and one is a prefix of the other (e.g. 'light' matching 'lights',
+    or 'temp' matching 'temperature').
+
+    Args:
+        q_token: Lowercase token extracted from user query.
+        cand_token: Lowercase token extracted from candidate entity, area, or intent label.
+
+    Returns:
+        True if the tokens match under exact or prefix rules; False otherwise.
+    """
     if q_token == cand_token:
         return True
     if len(q_token) >= 3 and len(cand_token) >= 3:
@@ -59,7 +108,20 @@ def token_match(q_token: str, cand_token: str) -> bool:
 
 
 def lexical_score(query_tokens: set[str], candidate: str, full_query: str) -> float:
-    """Compute lexical matching score between query tokens and candidate name or description."""
+    """Compute lexical matching score between query tokens and candidate name or description.
+
+    Calculates the number of token overlaps using `token_match()`. If the full candidate
+    phrase appears as a substring in the user query (or vice versa), an additional +2.0
+    phrase-matching bonus is awarded.
+
+    Args:
+        query_tokens: Pre-tokenized set of words from the user utterance.
+        candidate: Candidate string to compare against (e.g. friendly name, area name).
+        full_query: Normalized raw user input string.
+
+    Returns:
+        Float score representing lexical relevance (0.0 or higher).
+    """
     cand_tokens = tokenize(candidate)
     if not cand_tokens:
         return 0.0
@@ -82,7 +144,17 @@ def lexical_score(query_tokens: set[str], candidate: str, full_query: str) -> fl
 def get_handler_slot_info(
     handler: intent.IntentHandler,
 ) -> tuple[set[str], set[str]]:
-    """Extract (supported_slots, required_slots) from a Home Assistant IntentHandler."""
+    """Extract (supported_slots, required_slots) from a Home Assistant IntentHandler.
+
+    Inspects the handler's attributes (`required_slots`, `optional_slots`) and introspects
+    any `voluptuous` schema attached to `slot_schema` to discover all slot names and markers.
+
+    Args:
+        handler: Registered Home Assistant IntentHandler instance.
+
+    Returns:
+        A tuple of (supported_slot_names, required_slot_names).
+    """
     supported: set[str] = set()
     required: set[str] = set()
 
@@ -118,7 +190,19 @@ def get_handler_slot_info(
 
 
 def can_fulfill_intent(handler: intent.IntentHandler) -> bool:
-    """Determine whether the strategy can fulfill all required slots of an intent handler."""
+    """Determine whether the strategy can fulfill all required slots of an intent handler.
+
+    Checks if any required slots of the intent handler fall outside of `SUPPORTED_STRATEGY_SLOTS`.
+    If an intent requires slots we cannot populate (e.g. timer duration or weather forecast days),
+    it is filtered out of the candidate pool so the model is not asked to invoke an intent
+    that will fail execution.
+
+    Args:
+        handler: Registered Home Assistant IntentHandler to inspect.
+
+    Returns:
+        True if all required slots can be satisfied by our strategy; False otherwise.
+    """
     _supported, required = get_handler_slot_info(handler)
     unsupported_required = required - SUPPORTED_STRATEGY_SLOTS
     return len(unsupported_required) == 0
@@ -129,7 +213,22 @@ def discover_intents(
     utterance: str,
     max_options: int = 15,
 ) -> dict[str, str]:
-    """Discover candidate intents matching the user utterance."""
+    """Discover and rank candidate Home Assistant intents matching the user utterance.
+
+    Introspects registered intent handlers from `context.hass`. Filters handlers using
+    `can_fulfill_intent()`, computes lexical relevance scores against intent names and
+    descriptions, and selects the top candidates up to `max_options`. An explicit
+    `'unmatched'` choice is always included as an escape hatch for out-of-domain requests.
+
+    Args:
+        context: Strategy context providing access to Home Assistant's core registries.
+        utterance: Raw user input text.
+        max_options: Maximum number of intent candidates to return in the criteria mapping.
+
+    Returns:
+        Dictionary mapping intent_type (e.g. 'HassTurnOn') to human-readable description
+        suitable for `ChoiceQuestion.criteria`.
+    """
     query_tokens = tokenize(utterance)
     full_query = utterance.lower()
 
