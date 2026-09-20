@@ -249,7 +249,9 @@ async def test_tier1_f3_flow_schema_fields(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    schema = result["data_schema"].schema
+    data_schema = result.get("data_schema")
+    assert data_schema is not None
+    schema = getattr(data_schema, "schema", {})
     keys = [k.schema if hasattr(k, "schema") else k for k in schema.keys()]
     assert CONF_API_KEY in keys
     assert CONF_MODEL in keys
@@ -327,7 +329,9 @@ async def test_tier1_f4_options_flow_schema_threshold_slider(
 ) -> None:
     """F4.2: Verify options flow schema contains confidence_threshold and fallback_agent."""
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
-    schema = result["data_schema"].schema
+    data_schema = result.get("data_schema")
+    assert data_schema is not None
+    schema = getattr(data_schema, "schema", {})
     keys = [k.schema if hasattr(k, "schema") else k for k in schema.keys()]
     assert CONF_CONFIDENCE_THRESHOLD in keys
     assert CONF_FALLBACK_AGENT in keys
@@ -1800,7 +1804,7 @@ async def test_tier2_f1_runtime_data_slots_isolation(
     """F1.B5: Verify TypeSafeData slots prevent assigning arbitrary attributes."""
     data = config_entry.runtime_data
     with pytest.raises(AttributeError):
-        data.undeclared_attribute = 123  # type: ignore[attr-defined]
+        setattr(data, "undeclared_attribute", 123)
 
 
 # --- F2 Boundary ---
@@ -3521,6 +3525,7 @@ async def test_tier3_pairwise_f3_config_flow_and_f4_options_flow(
     await hass.async_block_till_done()
     assert opt_conf.get("type") is FlowResultType.CREATE_ENTRY
     entry = hass.config_entries.async_get_entry(entry_id)
+    assert entry is not None
     assert entry.options[CONF_CONFIDENCE_THRESHOLD] == 0.85
     assert entry.options[CONF_FALLBACK_AGENT] == "mock_agent"
 

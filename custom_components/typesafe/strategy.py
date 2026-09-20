@@ -128,15 +128,40 @@ def _tokenize(text: str) -> set[str]:
     return set(re.findall(r"\b\w+\b", text.lower()))
 
 
-def _lexical_score(query_tokens: set[str], candidate_text: str) -> float:
-    """Compute simple overlap score between query tokens and candidate text."""
-    if not candidate_text:
+def _token_match(q_token: str, cand_token: str) -> bool:
+    """Check if query token matches candidate token via equality or prefix/stem matching."""
+    if q_token == cand_token:
+        return True
+    if len(q_token) >= 3 and len(cand_token) >= 3:
+        if q_token.startswith(cand_token) or cand_token.startswith(q_token):
+            return True
+    return False
+
+
+def _lexical_score(
+    query_tokens: set[str], candidate: str, full_query: str = ""
+) -> float:
+    """Compute lexical matching score between query tokens and candidate name or description."""
+    if not candidate:
         return 0.0
-    cand_tokens = _tokenize(candidate_text)
+    cand_tokens = _tokenize(candidate)
     if not cand_tokens:
         return 0.0
-    common = query_tokens.intersection(cand_tokens)
-    return len(common) / len(cand_tokens)
+
+    matches = 0
+    for q in query_tokens:
+        for c in cand_tokens:
+            if _token_match(q, c):
+                matches += 1
+                break
+
+    score = float(matches)
+    if full_query:
+        cand_lower = candidate.lower()
+        query_lower = full_query.lower()
+        if cand_lower in query_lower or query_lower in cand_lower:
+            score += 2.0
+    return score
 
 
 def can_fulfill_intent(handler: intent.IntentHandler) -> bool:
@@ -191,30 +216,47 @@ class DecisionStrategy:
             desc = getattr(
                 handler, "description", ""
             ) or DEFAULT_INTENT_DESCRIPTIONS.get(intent_type, intent_type)
-            score = _lexical_score(query_tokens, f"{intent_type} {desc}")
+            name_readable = intent_type.replace("Hass", " ")
+            score = _lexical_score(query_tokens, desc, utterance) + _lexical_score(
+                query_tokens, name_readable, utterance
+            )
             scored_intents.append((score, intent_type, desc))
 
         # Fallback to defaults if no registered handlers exist
         if not scored_intents:
             for itype, desc in DEFAULT_INTENT_DESCRIPTIONS.items():
-                score = _lexical_score(query_tokens, f"{itype} {desc}")
+                name_readable = itype.replace("Hass", " ")
+                score = _lexical_score(query_tokens, desc, utterance) + _lexical_score(
+                    query_tokens, name_readable, utterance
+                )
                 scored_intents.append((score, itype, desc))
 
         # Sort descending by score
         scored_intents.sort(key=lambda x: x[0], reverse=True)
 
+        positive_intents = [item for item in scored_intents if item[0] > 0.0]
+        intents_to_consider = positive_intents if positive_intents else scored_intents
+
         # Select top candidates up to 5
         criteria: dict[str, str] = {}
-        for _, itype, desc in scored_intents[:5]:
+        for _, itype, desc in intents_to_consider[:5]:
             criteria[itype] = desc
 
+        if not positive_intents:
+            for itype in ("HassTurnOn", "HassTurnOff"):
+                if itype not in criteria and len(criteria) < 5:
+                    criteria[itype] = DEFAULT_INTENT_DESCRIPTIONS.get(
+                        itype, f"Handle {itype.replace('Hass', '')}"
+                    )
+
         criteria["unmatched"] = "Not a home control request or unsupported intent"
-        if len(criteria) < 2:
-            criteria["HassTurnOn"] = DEFAULT_INTENT_DESCRIPTIONS["HassTurnOn"]
         return criteria
 
     def _rank_entities(
-        self, context: StrategyContext, utterance: str
+        self,
+        context: StrategyContext,
+        utterance: str,
+        top_area_ids: set[str] | None = None,
     ) -> dict[str, str]:
         """Discover and rank candidate exposed entities."""
         query_tokens = _tokenize(utterance)
@@ -233,31 +275,36 @@ class DecisionStrategy:
                 else None
             ) or entity_id
 
-            # Find area name if mapped
+            # Find area name and ID if mapped
             area_name = ""
+            area_id = ""
             if context.entity_registry and hasattr(
                 context.entity_registry, "async_get"
             ):
                 entry = context.entity_registry.async_get(entity_id)
-                if (
-                    entry
-                    and entry.area_id
-                    and context.area_registry
-                    and hasattr(context.area_registry, "async_get_area")
-                ):
-                    area = context.area_registry.async_get_area(entry.area_id)
-                    if area and getattr(area, "name", None):
-                        area_name = area.name
+                if entry and entry.area_id:
+                    area_id = entry.area_id
+                    if context.area_registry and hasattr(
+                        context.area_registry, "async_get_area"
+                    ):
+                        area = context.area_registry.async_get_area(entry.area_id)
+                        if area and getattr(area, "name", None):
+                            area_name = area.name
 
-            desc_text = f"{friendly_name} {entity_id} {area_name}".strip()
-            score = _lexical_score(query_tokens, desc_text)
+            name_score = _lexical_score(query_tokens, friendly_name, utterance)
+            id_score = _lexical_score(
+                query_tokens, entity_id.replace("_", " "), utterance
+            )
+            score = max(name_score, id_score)
 
             # Boost if domain is in query tokens
             if domain in query_tokens:
                 score += 0.5
 
-            # Boost if area is in query tokens
-            if area_name and _tokenize(area_name).intersection(query_tokens):
+            # Boost if area matches query tokens or top area
+            if area_name and _lexical_score(query_tokens, area_name, utterance) > 0:
+                score += 1.0
+            elif top_area_ids and area_id and area_id in top_area_ids:
                 score += 1.0
 
             description = f"{friendly_name} ({domain})"
@@ -290,8 +337,11 @@ class DecisionStrategy:
         for area in areas.values():
             if not area or not getattr(area, "name", None):
                 continue
-            score = _lexical_score(query_tokens, area.name)
-            scored_areas.append((score, area.id, area.name))
+            score = _lexical_score(query_tokens, area.name, utterance)
+            id_score = _lexical_score(
+                query_tokens, area.id.replace("_", " "), utterance
+            )
+            scored_areas.append((max(score, id_score), area.id, area.name))
 
         scored_areas.sort(key=lambda x: x[0], reverse=True)
 
@@ -494,8 +544,10 @@ class DecisionStrategy:
     ) -> DecisionResult:
         """Evaluate utterance using speculative fan-out typed questions."""
         intent_criteria = self._discover_intents(context, utterance)
-        entity_criteria = self._rank_entities(context, utterance)
         area_criteria = self._rank_areas(context, utterance)
+        entity_criteria = self._rank_entities(
+            context, utterance, set(area_criteria.keys())
+        )
 
         questions: dict[str, Any] = {
             "intent": ChoiceQuestion(
