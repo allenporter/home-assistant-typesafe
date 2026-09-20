@@ -34,6 +34,11 @@ from custom_components.typesafe.const import (
 )
 from custom_components.typesafe.strategy import Question
 
+pytest_plugins = [
+    "tests.eval.fixtures_standard",
+    "tests.eval.fixtures_typesafe",
+]
+
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(
