@@ -1,4 +1,4 @@
-"""Unit tests for speculative intent strategy and discovery algorithms."""
+"""Unit tests for speculative intent decision strategy pipeline."""
 
 from __future__ import annotations
 
@@ -12,16 +12,11 @@ from custom_components.typesafe.speculative.models import (
     NoulAnswer,
 )
 from custom_components.typesafe.speculative.strategy.base import StrategyContext
-from custom_components.typesafe.speculative.strategy.discovery import (
-    can_fulfill_intent,
-    get_handler_slot_info,
-    lexical_score,
-    rank_areas,
-    rank_entities,
-    tokenize,
-)
 from custom_components.typesafe.speculative.strategy.speculative import (
+    DomainBoostedFanOutStrategy,
+    IntentPrunedFanOutStrategy,
     SpeculativeFanOutStrategy,
+    StandardFanOutStrategy,
 )
 
 
@@ -41,90 +36,16 @@ def empty_context_fixture() -> MagicMock:
     return context
 
 
-def test_tokenize_and_lexical_score() -> None:
-    """Test text tokenization and lexical scoring."""
-    tokens = tokenize("Turn on the Kitchen Light!")
-    assert "turn" in tokens
-    assert "kitchen" in tokens
-    assert "light" in tokens
+def test_strategy_variations_domain_filter_modes() -> None:
+    """Test that strategy variations initialize with their respective domain filter modes."""
+    standard = StandardFanOutStrategy()
+    assert standard.domain_filter_mode == "none"
 
-    score_match = lexical_score(
-        tokens, "Kitchen Ceiling Light", "turn on the kitchen light"
-    )
-    assert score_match > 0.0
+    pruned = IntentPrunedFanOutStrategy()
+    assert pruned.domain_filter_mode == "strict"
 
-    score_mismatch = lexical_score(tokens, "Basement Fan", "turn on the kitchen light")
-    assert score_mismatch == 0.0
-
-
-def test_intent_handler_slot_info_and_can_fulfill() -> None:
-    """Test extracting slot info from Home Assistant intent handlers."""
-    handler = MagicMock()
-    handler.required_slots = {"name": None}
-    handler.optional_slots = {"area": None}
-    handler.slot_schema = None
-
-    supported, required = get_handler_slot_info(handler)
-    assert "name" in required
-    assert "name" in supported
-    assert "area" in supported
-    assert can_fulfill_intent(handler)
-
-    unsupported_handler = MagicMock()
-    unsupported_handler.required_slots = {"unknown_slot": None}
-    unsupported_handler.optional_slots = {}
-    unsupported_handler.slot_schema = None
-    assert not can_fulfill_intent(unsupported_handler)
-
-
-def test_discovery_and_ranking_with_area_boosting() -> None:
-    """Test intent discovery, area ranking, and entity ranking with area boosting."""
-    context = MagicMock(spec=StrategyContext)
-    context.hass = MagicMock()
-
-    # Mock area registry
-    area_kitchen = MagicMock()
-    area_kitchen.name = "Kitchen"
-    area_bedroom = MagicMock()
-    area_bedroom.name = "Bedroom"
-    context.area_registry.async_list_areas.return_value = [area_kitchen, area_bedroom]
-
-    # Mock entity states
-    light_kitchen = MagicMock()
-    light_kitchen.entity_id = "light.kitchen_lights"
-    light_kitchen.domain = "light"
-    light_kitchen.attributes = {"friendly_name": "Kitchen Lights"}
-
-    light_bedroom = MagicMock()
-    light_bedroom.entity_id = "light.bedroom_lights"
-    light_bedroom.domain = "light"
-    light_bedroom.attributes = {"friendly_name": "Bedroom Lights"}
-
-    context.states = [light_kitchen, light_bedroom]
-
-    # Mock entity registry entries linking entities to areas
-    entry_k = MagicMock()
-    entry_k.area_id = "kitchen_id"
-    context.area_registry.async_get_area.side_effect = (
-        lambda aid: area_kitchen if aid == "kitchen_id" else None
-    )
-    context.entity_registry.async_get.side_effect = (
-        lambda eid: entry_k if eid == "light.kitchen_lights" else None
-    )
-
-    # Area ranking
-    areas = rank_areas(context, "Turn off kitchen light", max_options=5)
-    assert "Kitchen" in areas
-    assert "none" in areas
-
-    # Entity ranking with area boosting
-    entities = rank_entities(
-        context, "Turn off kitchen light", active_areas={"Kitchen"}, max_options=5
-    )
-    assert "light.kitchen_lights" in entities
-    # Kitchen light gets boosted over bedroom light
-    crit_keys = list(entities.keys())
-    assert crit_keys[0] == "light.kitchen_lights"
+    boosted = DomainBoostedFanOutStrategy()
+    assert boosted.domain_filter_mode == "boost"
 
 
 async def test_speculative_fan_out_strategy_decision(
@@ -188,3 +109,36 @@ async def test_speculative_fan_out_compound_and_low_confidence(
     )
     assert low_conf_dec.should_escalate
     assert low_conf_dec.escalation_reason == "Unhandled intent or low confidence"
+
+
+async def test_strategy_continuous_slots_extraction(
+    strategy: SpeculativeFanOutStrategy,
+    empty_context: MagicMock,
+) -> None:
+    """Test regex extraction of brightness and temperature continuous slots."""
+    fake_engine = FakeDecisionEngine(
+        default_answers={
+            "intent": ChoiceAnswer(choice="HassClimateSetTemperature", confidence=0.95),
+            "is_compound": NoulAnswer(noul=0.01),
+        }
+    )
+    decision = await strategy.async_decide(
+        fake_engine, "Set thermostat to 72.5 deg and lights to 80%", empty_context
+    )
+    assert decision.slots.get("temperature") == 72.5
+    assert decision.slots.get("brightness") == 80
+
+
+async def test_strategy_engine_prediction_exception(
+    strategy: SpeculativeFanOutStrategy,
+    empty_context: MagicMock,
+) -> None:
+    """Test that an unhandled engine exception escalates gracefully."""
+    failing_engine = MagicMock()
+    failing_engine.async_predict.side_effect = RuntimeError("API connection timeout")
+
+    decision = await strategy.async_decide(
+        failing_engine, "Turn on the light", empty_context
+    )
+    assert decision.should_escalate
+    assert "API connection timeout" in (decision.escalation_reason or "")

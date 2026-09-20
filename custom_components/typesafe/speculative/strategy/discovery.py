@@ -29,6 +29,7 @@ canonical `ChoiceQuestion` primitives evaluated by `SpeculativeFanOutStrategy`.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 import logging
 import re
 
@@ -59,10 +60,66 @@ CONTROLLABLE_DOMAINS: frozenset[str] = frozenset(
 )
 """Home Assistant entity domains that support direct speculative voice control actions."""
 
+INFORMATIONAL_INTENTS: frozenset[str] = frozenset(
+    {
+        "HassGetState",
+        "HassGetTemperature",
+        "HassClimateGetTemperature",
+        "HassGetWeather",
+        "HassGetCurrentDate",
+        "HassGetCurrentTime",
+        "HassNevermind",
+        "HassRespond",
+        # Timer intents (handled by timer manager / conversation fallback)
+        "HassStartTimer",
+        "HassCancelTimer",
+        "HassCancelAllTimers",
+        "HassPauseTimer",
+        "HassUnpauseTimer",
+        "HassIncreaseTimer",
+        "HassDecreaseTimer",
+        "HassTimerStatus",
+        # List / to-do intents (handled by list manager / conversation fallback)
+        "HassListAddItem",
+        "HassListCompleteItem",
+        "HassListRemoveItem",
+        "HassShoppingListAddItem",
+        "HassShoppingListCompleteItem",
+        "HassShoppingListLastItems",
+    }
+)
+
 SUPPORTED_STRATEGY_SLOTS: frozenset[str] = frozenset(
     {"name", "area", "domain", "floor", "device_class", "brightness", "temperature"}
 )
 """Slots that the speculative fan-out strategy is capable of extracting and populating."""
+
+
+def get_allowed_domains_for_intents(
+    candidate_intent_types: Collection[str],
+    handlers_by_type: dict[str, intent.IntentHandler] | None = None,
+) -> set[str]:
+    """Derive allowed entity domains from candidate intents and their platform handlers.
+
+    Specialized intents (e.g. HassMediaPause -> media_player, HassLightSet -> light)
+    restrict allowed domains to their platform. Generic on/off/toggle intents fall back
+    to CONTROLLABLE_DOMAINS.
+    """
+    allowed_domains: set[str] = set()
+    handlers = handlers_by_type or {}
+
+    for itype in candidate_intent_types:
+        if itype == "unmatched" or itype in INFORMATIONAL_INTENTS:
+            continue
+        handler = handlers.get(itype)
+        platforms = getattr(handler, "platforms", None) if handler else None
+        if platforms:
+            allowed_domains.update(platforms)
+        elif itype in ("HassTurnOn", "HassTurnOff", "HassToggle"):
+            allowed_domains.update(CONTROLLABLE_DOMAINS)
+
+    return allowed_domains if allowed_domains else set(CONTROLLABLE_DOMAINS)
+
 
 CANONICAL_INTENT_DESCRIPTIONS: dict[str, str] = {
     "HassTurnOn": "Turn on or activate a device, light, or appliance",
@@ -70,6 +127,11 @@ CANONICAL_INTENT_DESCRIPTIONS: dict[str, str] = {
     "HassToggle": "Toggle a device on or off",
     "HassLightSet": "Set brightness, dim, or change color of lights",
     "HassClimateSetTemperature": "Set target temperature for thermostat or climate device",
+    "HassMediaPause": "Pause media, music, or playback",
+    "HassMediaUnpause": "Resume media, music, or playback",
+    "HassOpenCover": "Open a cover, garage door, blinds, or shades",
+    "HassCloseCover": "Close a cover, garage door, blinds, or shades",
+    "HassStopMoving": "Stop movement of a cover, garage door, or shades",
 }
 """High-quality canonical descriptions used as Choice criteria labels for standard Home Assistant intents."""
 
@@ -108,6 +170,12 @@ def token_match(q_token: str, cand_token: str) -> bool:
     return False
 
 
+STOPWORDS: frozenset[str] = frozenset(
+    {"the", "a", "an", "of", "to", "for", "is", "at", "by", "with", "or"}
+)
+"""Grammatical function words ignored during lexical token matching."""
+
+
 def lexical_score(query_tokens: set[str], candidate: str, full_query: str) -> float:
     """Compute lexical matching score between query tokens and candidate name or description.
 
@@ -129,7 +197,11 @@ def lexical_score(query_tokens: set[str], candidate: str, full_query: str) -> fl
 
     matches = 0
     for q in query_tokens:
+        if q in STOPWORDS:
+            continue
         for c in cand_tokens:
+            if c in STOPWORDS:
+                continue
             if token_match(q, c):
                 matches += 1
                 break
@@ -212,7 +284,7 @@ def can_fulfill_intent(handler: intent.IntentHandler) -> bool:
 def discover_intents(
     context: StrategyContext,
     utterance: str,
-    max_options: int = 15,
+    max_options: int = 5,
 ) -> dict[str, str]:
     """Discover and rank candidate Home Assistant intents matching the user utterance.
 
@@ -220,15 +292,6 @@ def discover_intents(
     `can_fulfill_intent()`, computes lexical relevance scores against intent names and
     descriptions, and selects the top candidates up to `max_options`. An explicit
     `'unmatched'` choice is always included as an escape hatch for out-of-domain requests.
-
-    Args:
-        context: Strategy context providing access to Home Assistant's core registries.
-        utterance: Raw user input text.
-        max_options: Maximum number of intent candidates to return in the criteria mapping.
-
-    Returns:
-        Dictionary mapping intent_type (e.g. 'HassTurnOn') to human-readable description
-        suitable for `ChoiceQuestion.criteria`.
     """
     query_tokens = tokenize(utterance)
     full_query = utterance.lower()
@@ -238,20 +301,23 @@ def discover_intents(
 
     if registered_handlers:
         for handler in registered_handlers:
-            intent_type = handler.intent_type
-            if not can_fulfill_intent(handler):
+            intent_type = getattr(handler, "intent_type", None)
+            if (
+                not intent_type
+                or intent_type in INFORMATIONAL_INTENTS
+                or not can_fulfill_intent(handler)
+            ):
                 continue
 
-            desc = CANONICAL_INTENT_DESCRIPTIONS.get(intent_type)
-            if not desc:
-                raw_desc = (
-                    handler.description
-                    or handler.__doc__
-                    or f"Handle {intent_type.replace('Hass', '').strip()}"
-                )
-                desc = raw_desc.split(". ")[0].strip()
-                if not desc.endswith("."):
-                    desc += "."
+            raw_desc = (
+                getattr(handler, "description", None)
+                or getattr(handler, "__doc__", None)
+                or CANONICAL_INTENT_DESCRIPTIONS.get(intent_type)
+                or f"Handle {intent_type.replace('Hass', '').strip()}"
+            )
+            desc = raw_desc.split(". ")[0].strip()
+            if not desc.endswith("."):
+                desc += "."
 
             desc_score = lexical_score(query_tokens, desc, full_query)
             name_score = lexical_score(
@@ -261,6 +327,8 @@ def discover_intents(
             scored_candidates.append((score, intent_type, desc))
     else:
         for it, desc in CANONICAL_INTENT_DESCRIPTIONS.items():
+            if it in INFORMATIONAL_INTENTS:
+                continue
             desc_score = lexical_score(query_tokens, desc, full_query)
             name_score = lexical_score(
                 query_tokens, it.replace("Hass", " "), full_query
@@ -278,16 +346,22 @@ def discover_intents(
     )
 
     criteria = {name: desc for _, name, desc in selected}
-    criteria["unmatched"] = (
-        "The request does not match any available Home Assistant action"
-    )
+
+    if not positive_candidates:
+        for itype in ("HassTurnOn", "HassTurnOff"):
+            if itype not in criteria and len(criteria) < max_options:
+                criteria[itype] = CANONICAL_INTENT_DESCRIPTIONS.get(
+                    itype, f"Handle {itype.replace('Hass', '')}"
+                )
+
+    criteria["unmatched"] = "Not a home control request or unsupported intent"
     return criteria
 
 
 def rank_areas(
     context: StrategyContext,
     utterance: str,
-    max_options: int = 15,
+    max_options: int = 10,
 ) -> dict[str, str]:
     """Rank area candidates using lexical token matching.
 
@@ -295,28 +369,28 @@ def rank_areas(
         context: Strategy context containing the Home Assistant area registry.
         utterance: Raw user input text.
         max_options: Maximum number of area options to include in the Choice question criteria.
-            Restricting to top-N candidates keeps the prompt bounded and avoids context window
-            bloat when homes have dozens of rooms.
-
-    Returns:
-        Dictionary mapping area name/ID to descriptive label for Choice criteria.
     """
-    areas = context.area_registry.async_list_areas()
+    areas = context.area_registry.async_list_areas() if context.area_registry else []
     query_tokens = tokenize(utterance)
     full_query = utterance.lower()
 
     scored_areas: list[tuple[float, str, str]] = []
     for area in areas:
+        if not area or not area.name:
+            continue
         score = lexical_score(query_tokens, area.name, full_query)
-        scored_areas.append((score, area.name, f"{area.name} area or room"))
+        area_key = getattr(area, "id", None) or getattr(area, "name", "")
+        id_score = lexical_score(query_tokens, area_key.replace("_", " "), full_query)
+        scored_areas.append((max(score, id_score), area_key, f"{area.name} area"))
 
     scored_areas.sort(key=lambda x: x[0], reverse=True)
 
     positive = [a for a in scored_areas if a[0] > 0]
     selected = positive[:max_options] if positive else scored_areas[:max_options]
 
-    criteria = {name: desc for _, name, desc in selected}
-    criteria["none"] = "No specific area referenced"
+    criteria = {key: desc for _, key, desc in selected}
+    if criteria:
+        criteria["none"] = "None of the listed areas"
     return criteria
 
 
@@ -324,68 +398,84 @@ def rank_entities(
     context: StrategyContext,
     utterance: str,
     active_areas: set[str],
-    max_options: int = 15,
+    allowed_domains: set[str] | None = None,
+    boosted_domains: set[str] | None = None,
+    max_options: int = 20,
 ) -> dict[str, str]:
-    """Rank entity candidates based on lexical similarity and area boosting.
-
-    Area boosting:
-        When an utterance references a specific room or area (e.g. "turn off the kitchen lights"),
-        devices physically assigned to that room in Home Assistant's entity registry receive an
-        accumulative score bonus (+1.5 * area match score, plus +1.0 if the area matched the
-        top-ranked active area). This prioritizes devices in the intended location over identically
-        or similarly named devices in other rooms (e.g. "kitchen ceiling light" vs "bedroom ceiling light").
+    """Rank entity candidates based on lexical similarity, area boosting, and domain filtering.
 
     Args:
         context: Strategy context containing states, entity registry, and area registry.
         utterance: Raw user input text.
-        active_areas: Set of top candidate area names identified from the utterance.
-        max_options: Maximum number of candidate entities to include in the Choice question criteria.
-            Limits the candidate pool to the most relevant devices for model selection.
-
-    Returns:
-        Dictionary mapping entity_id to descriptive label (name, domain, area) for Choice criteria.
+        active_areas: Set of top candidate area names/IDs identified from the utterance.
+        allowed_domains: If specified, strictly restrict candidates to these domains.
+        boosted_domains: If specified, award a bonus (+1.5) to entities in these domains.
+        max_options: Maximum number of candidate entities to include.
     """
     query_tokens = tokenize(utterance)
     full_query = utterance.lower()
 
+    target_domains = (
+        allowed_domains if allowed_domains is not None else CONTROLLABLE_DOMAINS
+    )
     scored_entities: list[tuple[float, str, str]] = []
+    states = context.states if context.states is not None else []
 
-    for state in context.states:
-        domain = state.domain
-        if domain not in CONTROLLABLE_DOMAINS:
+    for state in states:
+        domain = getattr(state, "domain", None)
+        if not domain or domain not in target_domains:
             continue
 
-        friendly_name = state.attributes.get("friendly_name") or state.entity_id
-        entry = context.entity_registry.async_get(state.entity_id)
+        entity_id = state.entity_id
+        friendly_name = (
+            state.attributes.get("friendly_name")
+            if hasattr(state, "attributes") and isinstance(state.attributes, dict)
+            else getattr(state, "name", None)
+        ) or entity_id
 
-        area_name: str | None = None
-        if entry and entry.area_id:
-            area_entry = context.area_registry.async_get_area(entry.area_id)
-            if area_entry:
-                area_name = area_entry.name
+        area_name = ""
+        area_id = ""
+        if context.entity_registry and hasattr(context.entity_registry, "async_get"):
+            entry = context.entity_registry.async_get(entity_id)
+            if entry and entry.area_id:
+                area_id = entry.area_id
+                if context.area_registry and hasattr(
+                    context.area_registry, "async_get_area"
+                ):
+                    area = context.area_registry.async_get_area(entry.area_id)
+                    if area and area.name:
+                        area_name = area.name
 
-        base_score = lexical_score(
-            query_tokens, f"{friendly_name} {domain}", full_query
-        )
-        area_score = (
-            lexical_score(query_tokens, area_name, full_query) if area_name else 0.0
-        )
-        total_score = base_score + (area_score * 1.5)
+        name_score = lexical_score(query_tokens, friendly_name, full_query)
+        id_score = lexical_score(query_tokens, entity_id.replace("_", " "), full_query)
+        score = max(name_score, id_score)
 
-        if area_name and area_name in active_areas and area_score > 0:
-            total_score += 1.0
+        if domain in query_tokens:
+            score += 0.5
+
+        if area_name and lexical_score(query_tokens, area_name, full_query) > 0:
+            score += 1.0
+        elif active_areas and (
+            (area_id and area_id in active_areas)
+            or (area_name and area_name in active_areas)
+        ):
+            score += 1.0
+
+        if boosted_domains and domain in boosted_domains:
+            score += 1.5
 
         desc = f"{friendly_name} ({domain})"
         if area_name:
             desc += f" in {area_name}"
 
-        scored_entities.append((total_score, state.entity_id, desc))
+        scored_entities.append((score, entity_id, desc))
 
     scored_entities.sort(key=lambda x: x[0], reverse=True)
 
-    positive = [e for e in scored_entities if e[0] > 0]
-    selected = positive[:max_options] if positive else scored_entities[:max_options]
+    criteria: dict[str, str] = {}
+    for _, eid, desc in scored_entities[:max_options]:
+        criteria[eid] = desc
 
-    criteria = {eid: desc for _, eid, desc in selected}
-    criteria["none"] = "No specific entity referenced"
+    if criteria:
+        criteria["none"] = "None of the listed devices"
     return criteria

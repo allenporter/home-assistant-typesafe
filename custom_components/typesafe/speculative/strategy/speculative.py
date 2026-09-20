@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from homeassistant.helpers import intent
 
@@ -18,11 +18,10 @@ from ..models import (
 )
 from .base import Decision, DecisionStrategy, StrategyContext
 from .discovery import (
-    CANONICAL_INTENT_DESCRIPTIONS,
-    CONTROLLABLE_DOMAINS,
-    can_fulfill_intent,
-    lexical_score,
-    tokenize,
+    discover_intents,
+    get_allowed_domains_for_intents,
+    rank_areas,
+    rank_entities,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,10 +37,12 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         self,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
         compound_threshold: float = DEFAULT_COMPOUND_THRESHOLD,
+        domain_filter_mode: Literal["none", "strict", "boost"] = "none",
     ) -> None:
         """Initialize SpeculativeFanOutStrategy."""
         self._confidence_threshold = confidence_threshold
         self._compound_threshold = compound_threshold
+        self._domain_filter_mode = domain_filter_mode
 
     @property
     def confidence_threshold(self) -> float:
@@ -53,156 +54,37 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         """Return the compound threshold."""
         return self._compound_threshold
 
+    @property
+    def domain_filter_mode(self) -> Literal["none", "strict", "boost"]:
+        """Return the domain filter mode."""
+        return self._domain_filter_mode
+
     def _discover_intents(
         self, context: StrategyContext, utterance: str
     ) -> dict[str, str]:
         """Discover and rank candidate intent schemas."""
-        query_tokens = tokenize(utterance)
-        registered_handlers: list[intent.IntentHandler] = []
-        if context.hass:
-            try:
-                registered_handlers = list(intent.async_get(context.hass))
-            except Exception:
-                registered_handlers = []
+        return discover_intents(context, utterance)
 
-        scored_intents: list[tuple[float, str, str]] = []
-
-        for handler in registered_handlers:
-            intent_type = getattr(handler, "intent_type", None)
-            if not intent_type or not can_fulfill_intent(handler):
-                continue
-            desc = handler.description or CANONICAL_INTENT_DESCRIPTIONS.get(
-                intent_type, intent_type
-            )
-            name_readable = intent_type.replace("Hass", " ")
-            score = lexical_score(query_tokens, desc, utterance) + lexical_score(
-                query_tokens, name_readable, utterance
-            )
-            scored_intents.append((score, intent_type, desc))
-
-        # Fallback to defaults if no registered handlers exist
-        if not scored_intents:
-            for itype, desc in CANONICAL_INTENT_DESCRIPTIONS.items():
-                name_readable = itype.replace("Hass", " ")
-                score = lexical_score(query_tokens, desc, utterance) + lexical_score(
-                    query_tokens, name_readable, utterance
-                )
-                scored_intents.append((score, itype, desc))
-
-        scored_intents.sort(key=lambda x: x[0], reverse=True)
-
-        positive_intents = [item for item in scored_intents if item[0] > 0.0]
-        intents_to_consider = positive_intents if positive_intents else scored_intents
-
-        criteria: dict[str, str] = {}
-        for _, itype, desc in intents_to_consider[:5]:
-            criteria[itype] = desc
-
-        if not positive_intents:
-            for itype in ("HassTurnOn", "HassTurnOff"):
-                if itype not in criteria and len(criteria) < 5:
-                    criteria[itype] = CANONICAL_INTENT_DESCRIPTIONS.get(
-                        itype, f"Handle {itype.replace('Hass', '')}"
-                    )
-
-        criteria["unmatched"] = "Not a home control request or unsupported intent"
-        return criteria
+    def _rank_areas(self, context: StrategyContext, utterance: str) -> dict[str, str]:
+        """Discover and rank candidate areas."""
+        return rank_areas(context, utterance)
 
     def _rank_entities(
         self,
         context: StrategyContext,
         utterance: str,
         top_area_ids: set[str] | None = None,
+        allowed_domains: set[str] | None = None,
+        boosted_domains: set[str] | None = None,
     ) -> dict[str, str]:
         """Discover and rank candidate exposed entities."""
-        query_tokens = tokenize(utterance)
-        scored_entities: list[tuple[float, str, str]] = []
-
-        states = context.states if context.states is not None else []
-        for state in states:
-            domain = getattr(state, "domain", None)
-            if not domain or domain not in CONTROLLABLE_DOMAINS:
-                continue
-
-            entity_id = state.entity_id
-            friendly_name = (
-                state.attributes.get("friendly_name")
-                if hasattr(state, "attributes") and isinstance(state.attributes, dict)
-                else None
-            ) or entity_id
-
-            area_name = ""
-            area_id = ""
-            if context.entity_registry and hasattr(
-                context.entity_registry, "async_get"
-            ):
-                entry = context.entity_registry.async_get(entity_id)
-                if entry and entry.area_id:
-                    area_id = entry.area_id
-                    if context.area_registry and hasattr(
-                        context.area_registry, "async_get_area"
-                    ):
-                        area = context.area_registry.async_get_area(entry.area_id)
-                        if area and area.name:
-                            area_name = area.name
-
-            name_score = lexical_score(query_tokens, friendly_name, utterance)
-            id_score = lexical_score(
-                query_tokens, entity_id.replace("_", " "), utterance
-            )
-            score = max(name_score, id_score)
-
-            if domain in query_tokens:
-                score += 0.5
-
-            if area_name and lexical_score(query_tokens, area_name, utterance) > 0:
-                score += 1.0
-            elif top_area_ids and area_id and area_id in top_area_ids:
-                score += 1.0
-
-            description = f"{friendly_name} ({domain})"
-            if area_name:
-                description += f" in {area_name}"
-
-            scored_entities.append((score, entity_id, description))
-
-        scored_entities.sort(key=lambda x: x[0], reverse=True)
-
-        criteria: dict[str, str] = {}
-        for _, eid, desc in scored_entities[:20]:
-            criteria[eid] = desc
-
-        if criteria:
-            criteria["none"] = "None of the listed devices"
-
-        return criteria
-
-    def _rank_areas(self, context: StrategyContext, utterance: str) -> dict[str, str]:
-        """Discover and rank candidate areas."""
-        query_tokens = tokenize(utterance)
-        scored_areas: list[tuple[float, str, str]] = []
-
-        areas = {}
-        if context.area_registry and hasattr(context.area_registry, "areas"):
-            areas = context.area_registry.areas or {}
-
-        for area in areas.values():
-            if not area or not area.name:
-                continue
-            score = lexical_score(query_tokens, area.name, utterance)
-            id_score = lexical_score(query_tokens, area.id.replace("_", " "), utterance)
-            scored_areas.append((max(score, id_score), area.id, area.name))
-
-        scored_areas.sort(key=lambda x: x[0], reverse=True)
-
-        criteria: dict[str, str] = {}
-        for _, aid, name in scored_areas[:20]:
-            criteria[aid] = name
-
-        if criteria:
-            criteria["none"] = "None of the listed areas"
-
-        return criteria
+        return rank_entities(
+            context,
+            utterance,
+            active_areas=top_area_ids or set(),
+            allowed_domains=allowed_domains,
+            boosted_domains=boosted_domains,
+        )
 
     @staticmethod
     def _safe_choice(answers: dict[str, Any], key: str) -> str | None:
@@ -383,8 +265,33 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         """Build canonical Question objects for speculative fan-out."""
         intent_criteria = self._discover_intents(context, utterance)
         area_criteria = self._rank_areas(context, utterance)
+
+        allowed_domains: set[str] | None = None
+        boosted_domains: set[str] | None = None
+
+        if self._domain_filter_mode in ("strict", "boost"):
+            handlers_map: dict[str, intent.IntentHandler] = {}
+            if context.hass:
+                handlers_map = {
+                    getattr(h, "intent_type", ""): h
+                    for h in intent.async_get(context.hass)
+                    if hasattr(h, "intent_type")
+                }
+            candidate_intents = [k for k in intent_criteria.keys() if k != "unmatched"]
+            derived_domains = get_allowed_domains_for_intents(
+                candidate_intents, handlers_map
+            )
+            if self._domain_filter_mode == "strict":
+                allowed_domains = derived_domains
+            else:
+                boosted_domains = derived_domains
+
         entity_criteria = self._rank_entities(
-            context, utterance, set(area_criteria.keys())
+            context,
+            utterance,
+            top_area_ids=set(area_criteria.keys()),
+            allowed_domains=allowed_domains,
+            boosted_domains=boosted_domains,
         )
 
         canonical: dict[str, Question] = {
@@ -448,3 +355,51 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                 should_escalate=True,
                 escalation_reason=f"Engine prediction error: {err}",
             )
+
+
+class StandardFanOutStrategy(SpeculativeFanOutStrategy):
+    """Standard fan-out strategy without domain filtering."""
+
+    def __init__(
+        self,
+        confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        compound_threshold: float = DEFAULT_COMPOUND_THRESHOLD,
+    ) -> None:
+        """Initialize StandardFanOutStrategy."""
+        super().__init__(
+            confidence_threshold=confidence_threshold,
+            compound_threshold=compound_threshold,
+            domain_filter_mode="none",
+        )
+
+
+class IntentPrunedFanOutStrategy(SpeculativeFanOutStrategy):
+    """Speculative fan-out strategy that strictly prunes entity candidates by candidate intent domains."""
+
+    def __init__(
+        self,
+        confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        compound_threshold: float = DEFAULT_COMPOUND_THRESHOLD,
+    ) -> None:
+        """Initialize IntentPrunedFanOutStrategy."""
+        super().__init__(
+            confidence_threshold=confidence_threshold,
+            compound_threshold=compound_threshold,
+            domain_filter_mode="strict",
+        )
+
+
+class DomainBoostedFanOutStrategy(SpeculativeFanOutStrategy):
+    """Speculative fan-out strategy that soft-boosts entity candidates matching candidate intent domains."""
+
+    def __init__(
+        self,
+        confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+        compound_threshold: float = DEFAULT_COMPOUND_THRESHOLD,
+    ) -> None:
+        """Initialize DomainBoostedFanOutStrategy."""
+        super().__init__(
+            confidence_threshold=confidence_threshold,
+            compound_threshold=compound_threshold,
+            domain_filter_mode="boost",
+        )

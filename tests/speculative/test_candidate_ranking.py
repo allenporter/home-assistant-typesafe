@@ -7,7 +7,12 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.typesafe.speculative.inmemory.engine import FakeDecisionEngine
 from custom_components.typesafe.speculative.models import ChoiceAnswer, NoulAnswer
-from custom_components.typesafe.strategy import DecisionStrategy
+from custom_components.typesafe.strategy import (
+    DecisionStrategy,
+    DomainBoostedFanOutStrategy,
+    IntentPrunedFanOutStrategy,
+    StandardFanOutStrategy,
+)
 from tests.common.fixture_loader import (
     load_device_action_cases,
     load_synthetic_home_fixtures,
@@ -158,12 +163,106 @@ async def test_farmhouse_labeled_cases_loading() -> None:
     )
 
 
-async def test_farmhouse_batch_candidate_recall(
+async def test_farmhouse_hard_disambiguation_recall(
     farmhouse_context,
     strategy: DecisionStrategy,
     engine: FakeDecisionEngine,
 ) -> None:
-    """Test candidate intent and entity retrieval recall across all labeled utterances."""
+    """Test disambiguation across identical device names using area tokens."""
+    # Family room speaker
+    await strategy.async_decide(
+        engine, "Pause the music in the family room", farmhouse_context
+    )
+    questions = engine.calls[-1]["questions"]
+    assert "target_area" in questions
+    assert "family_room" in questions["target_area"].criteria
+    assert "target_entity" in questions
+    assert "media_player.smart_speaker" in questions["target_entity"].criteria
+
+    # Master bedroom speaker
+    await strategy.async_decide(
+        engine, "Turn up the master bedroom speaker", farmhouse_context
+    )
+    questions = engine.calls[-1]["questions"]
+    assert "target_area" in questions
+    assert "master_bedroom" in questions["target_area"].criteria
+
+    # Porch speaker
+    await strategy.async_decide(engine, "Resume music on the porch", farmhouse_context)
+    questions = engine.calls[-1]["questions"]
+    assert "target_area" in questions
+    assert "wrap_around_porch" in questions["target_area"].criteria
+
+
+async def test_farmhouse_valve_and_cover_candidate_recall(
+    farmhouse_context,
+    strategy: DecisionStrategy,
+    engine: FakeDecisionEngine,
+) -> None:
+    """Test candidate retrieval for valve and cover domains."""
+    # Valve: Backyard smart sprinkler system
+    await strategy.async_decide(
+        engine, "Turn on the backyard sprinklers", farmhouse_context
+    )
+    questions = engine.calls[-1]["questions"]
+    assert "valve.smart_sprinkler_system" in questions["target_entity"].criteria
+    assert "HassTurnOn" in questions["intent"].criteria
+
+    # Cover: Open barn garage door
+    await strategy.async_decide(engine, "Open the barn garage door", farmhouse_context)
+    questions = engine.calls[-1]["questions"]
+    assert "cover.barn_garage_door" in questions["target_entity"].criteria
+    assert "HassOpenCover" in questions["intent"].criteria
+
+    # Cover: Close barn garage door
+    await strategy.async_decide(engine, "Shut the barn garage door", farmhouse_context)
+    questions = engine.calls[-1]["questions"]
+    assert "cover.barn_garage_door" in questions["target_entity"].criteria
+    assert "HassCloseCover" in questions["intent"].criteria
+
+    # Cover: Stop moving
+    await strategy.async_decide(
+        engine, "Stop moving the garage door", farmhouse_context
+    )
+    questions = engine.calls[-1]["questions"]
+    assert "cover.barn_garage_door" in questions["target_entity"].criteria
+    assert "HassStopMoving" in questions["intent"].criteria
+
+
+async def test_candidate_ranking_filters_by_intent_domain(
+    farmhouse_context,
+    engine: FakeDecisionEngine,
+) -> None:
+    """Verify that IntentPrunedFanOutStrategy prunes non-media entities for 'pause' while StandardFanOutStrategy retains them."""
+    # 1. Unpruned strategy includes kitchen light due to area matching
+    standard_strategy = StandardFanOutStrategy()
+    await standard_strategy.async_decide(engine, "Pause the kitchen", farmhouse_context)
+    standard_candidates = engine.calls[-1]["questions"]["target_entity"].criteria
+    assert "light.kitchen_light" in standard_candidates
+
+    # 2. Pruned strategy restricts candidates to media_player domain, pruning kitchen light
+    pruned_strategy = IntentPrunedFanOutStrategy()
+    await pruned_strategy.async_decide(engine, "Pause the kitchen", farmhouse_context)
+    pruned_candidates = engine.calls[-1]["questions"]["target_entity"].criteria
+    assert "media_player.smart_speaker" in pruned_candidates
+    assert "light.kitchen_light" not in pruned_candidates
+
+
+@pytest.mark.parametrize(
+    "strategy_cls",
+    [
+        StandardFanOutStrategy,
+        IntentPrunedFanOutStrategy,
+        DomainBoostedFanOutStrategy,
+    ],
+)
+async def test_farmhouse_batch_candidate_recall(
+    farmhouse_context,
+    strategy_cls: type[DecisionStrategy],
+    engine: FakeDecisionEngine,
+) -> None:
+    """Test candidate intent and entity retrieval recall across all labeled utterances for each strategy."""
+    strategy = strategy_cls()
     engine.set_default_answers(
         {
             "intent": ChoiceAnswer(choice="HassTurnOn", confidence=0.95),
@@ -192,7 +291,7 @@ async def test_farmhouse_batch_candidate_recall(
     intent_recall = intent_hits / len(cases)
     entity_recall = entity_hits / len(cases)
     print(
-        f"\nFarmhouse recall - Intent: {intent_recall:.1%}, Entity: {entity_recall:.1%}"
+        f"\n[{strategy_cls.__name__}] Recall - Intent: {intent_recall:.1%}, Entity: {entity_recall:.1%}"
     )
 
     # Over 90% of utterances should correctly retrieve expected intent in candidate choices

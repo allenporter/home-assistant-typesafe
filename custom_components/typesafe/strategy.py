@@ -23,7 +23,12 @@ from .speculative.strategy.discovery import (
     SUPPORTED_STRATEGY_SLOTS,
     can_fulfill_intent,
 )
-from .speculative.strategy.speculative import SpeculativeFanOutStrategy
+from .speculative.strategy.speculative import (
+    DomainBoostedFanOutStrategy,
+    IntentPrunedFanOutStrategy,
+    SpeculativeFanOutStrategy,
+    StandardFanOutStrategy,
+)
 
 DecisionStrategy = SpeculativeFanOutStrategy
 
@@ -37,6 +42,8 @@ __all__ = [
     "Decision",
     "DecisionResult",
     "DecisionStrategy",
+    "DomainBoostedFanOutStrategy",
+    "IntentPrunedFanOutStrategy",
     "NoulAnswer",
     "NoulQuestion",
     "Question",
@@ -44,6 +51,7 @@ __all__ = [
     "ScoreQuestion",
     "SUPPORTED_STRATEGY_SLOTS",
     "SpeculativeFanOutStrategy",
+    "StandardFanOutStrategy",
     "StrategyContext",
     "can_fulfill_intent",
 ]

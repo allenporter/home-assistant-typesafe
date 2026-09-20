@@ -7,6 +7,7 @@ from .discovery import (
     SUPPORTED_STRATEGY_SLOTS,
     can_fulfill_intent,
     discover_intents,
+    get_allowed_domains_for_intents,
     get_handler_slot_info,
     lexical_score,
     rank_areas,
@@ -14,18 +15,27 @@ from .discovery import (
     token_match,
     tokenize,
 )
-from .speculative import SpeculativeFanOutStrategy
+from .speculative import (
+    DomainBoostedFanOutStrategy,
+    IntentPrunedFanOutStrategy,
+    SpeculativeFanOutStrategy,
+    StandardFanOutStrategy,
+)
 
 __all__ = [
     "CANONICAL_INTENT_DESCRIPTIONS",
     "CONTROLLABLE_DOMAINS",
     "Decision",
     "DecisionStrategy",
+    "DomainBoostedFanOutStrategy",
+    "IntentPrunedFanOutStrategy",
     "SUPPORTED_STRATEGY_SLOTS",
     "SpeculativeFanOutStrategy",
+    "StandardFanOutStrategy",
     "StrategyContext",
     "can_fulfill_intent",
     "discover_intents",
+    "get_allowed_domains_for_intents",
     "get_handler_slot_info",
     "lexical_score",
     "rank_areas",
