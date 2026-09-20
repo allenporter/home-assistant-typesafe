@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components import conversation
@@ -254,8 +255,7 @@ async def test_tier1_f3_flow_schema_fields(hass: HomeAssistant) -> None:
     )
     data_schema = result.get("data_schema")
     assert data_schema is not None
-    schema = getattr(data_schema, "schema", {})
-    keys = [k.schema if hasattr(k, "schema") else k for k in schema.keys()]
+    keys = [k.schema if isinstance(k, vol.Marker) else k for k in data_schema.schema]
     assert CONF_API_KEY in keys
     assert CONF_MODEL in keys
 
@@ -334,8 +334,7 @@ async def test_tier1_f4_options_flow_schema_threshold_slider(
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
     data_schema = result.get("data_schema")
     assert data_schema is not None
-    schema = getattr(data_schema, "schema", {})
-    keys = [k.schema if hasattr(k, "schema") else k for k in schema.keys()]
+    keys = [k.schema if isinstance(k, vol.Marker) else k for k in data_schema.schema]
     assert CONF_CONFIDENCE_THRESHOLD in keys
     assert CONF_FALLBACK_AGENT in keys
 
@@ -497,36 +496,40 @@ async def test_tier1_f5_reload_listener_attached_to_entry(
 async def test_tier1_f6_client_payload_structure(
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F6.1: Verify async_evaluate records state, model, and questions in payload."""
-    await mock_client.async_evaluate(
+    """F6.1: Verify async_system_one records state, model, and questions in payload."""
+    await mock_client.async_system_one(
         state={"utterance": "test command"},
-        questions={"intent": {"type": "choice"}},
+        questions={
+            "intent": ChoiceQuestion(
+                instructions="Intent", criteria={"HassTurnOn": "Turn on"}
+            )
+        },
         model="jev-latest",
     )
     assert len(mock_client.calls) == 1
     call = mock_client.calls[0]
     assert call["state"] == {"utterance": "test command"}
-    assert call["questions"] == {"intent": {"type": "choice"}}
+    assert "intent" in call["questions"]
     assert call["model"] == "jev-latest"
 
 
 async def test_tier1_f6_client_returns_answers_dict(
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F6.2: Verify async_evaluate returns structured answers dictionary."""
+    """F6.2: Verify async_system_one returns SystemOneResponse."""
     mock_client.set_answers({"intent": {"choice": "HassTurnOn", "confidence": 0.9}})
-    res = await mock_client.async_evaluate(state="turn on", questions={})
-    assert res["model"] == "jev-latest"
-    assert res["answers"]["intent"]["choice"] == "HassTurnOn"
+    res = await mock_client.async_system_one(state="turn on", questions={})
+    assert res.model == "jev-latest"
+    assert res.choices["intent"].choice == "HassTurnOn"
 
 
 async def test_tier1_f6_client_auth_error_raised(
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F6.3: Verify async_evaluate surfaces TypeSafeAuthError on 401 response."""
+    """F6.3: Verify async_system_one surfaces TypeSafeAuthError on 401 response."""
     mock_client.evaluate_error = TypeSafeAuthError("API key invalid")
     with pytest.raises(TypeSafeAuthError, match="API key invalid"):
-        await mock_client.async_evaluate(state="test", questions={})
+        await mock_client.async_system_one(state="test", questions={})
 
 
 async def test_tier1_f6_client_rate_limit_error_raised(
@@ -535,7 +538,7 @@ async def test_tier1_f6_client_rate_limit_error_raised(
     """F6.4: Verify client surfaces TypeSafeRateLimitError on 429 response."""
     mock_client.evaluate_error = TypeSafeRateLimitError("Rate limit exceeded")
     with pytest.raises(TypeSafeRateLimitError, match="Rate limit exceeded"):
-        await mock_client.async_evaluate(state="test", questions={})
+        await mock_client.async_system_one(state="test", questions={})
 
 
 async def test_tier1_f6_client_timeout_error_raised(
@@ -544,44 +547,34 @@ async def test_tier1_f6_client_timeout_error_raised(
     """F6.5: Verify client surfaces TypeSafeError on timeout."""
     mock_client.evaluate_error = TypeSafeError("Request failed: Timeout")
     with pytest.raises(TypeSafeError, match="Request failed"):
-        await mock_client.async_evaluate(state="test", questions={})
+        await mock_client.async_system_one(state="test", questions={})
 
 
 # --- F7: Typed Primitives (`ChoiceQuestion`, `NoulQuestion`, `ChoiceAnswer`, `NoulAnswer`) ---
 
 
-async def test_tier1_f7_choice_question_to_dict_structure() -> None:
-    """F7.1: Verify ChoiceQuestion.to_dict formats choice question payload correctly."""
+async def test_tier1_f7_choice_question_structure() -> None:
+    """F7.1: Verify ChoiceQuestion fields and criteria correctly."""
     cq = ChoiceQuestion(
         instructions="Select device",
         criteria={"light.bulb": "Main light", "none": "No device"},
     )
-    payload = cq.to_dict()
-    assert payload["type"] == "choice"
-    assert payload["instructions"] == "Select device"
-    assert payload["criteria"]["light.bulb"] == "Main light"
-    assert payload["criteria"]["none"] == "No device"
+    assert cq.instructions == "Select device"
+    assert cq.criteria["light.bulb"] == "Main light"
+    assert cq.criteria["none"] == "No device"
 
 
-async def test_tier1_f7_noul_question_to_dict_without_criteria() -> None:
-    """F7.2: Verify NoulQuestion.to_dict formats noul question payload without criteria."""
+async def test_tier1_f7_noul_question_without_criteria() -> None:
+    """F7.2: Verify NoulQuestion fields without criteria."""
     nq = NoulQuestion(instructions="Is this a multi-part command?")
-    payload = nq.to_dict()
-    assert payload["type"] == "noul"
-    assert payload["instructions"] == "Is this a multi-part command?"
-    assert "criteria" not in payload
+    assert nq.instructions == "Is this a multi-part command?"
 
 
-async def test_tier1_f7_noul_question_to_dict_with_criteria() -> None:
-    """F7.3: Verify NoulQuestion.to_dict includes criteria when provided."""
-    nq = NoulQuestion(
-        instructions="Is temperature requested?",
-        criteria={"true": "Degrees specified", "false": "No temperature"},
-    )
-    payload = nq.to_dict()
-    assert payload["type"] == "noul"
-    assert "criteria" in payload
-    assert payload["criteria"]["true"] == "Degrees specified"
+async def test_tier1_f7_noul_question_with_dict_instructions() -> None:
+    """F7.3: Verify NoulQuestion accepts structured dict instructions."""
+    instr = {"condition": "Is temperature requested?"}
+    nq = NoulQuestion(instructions=instr)
+    assert nq.instructions == instr
 
 
 async def test_tier1_f7_choice_answer_instantiation_and_slots() -> None:
@@ -902,7 +895,7 @@ async def test_tier1_f10_state_payload_contains_utterance_and_home(
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F10.5: Verify state payload passed to async_evaluate has utterance and home."""
+    """F10.5: Verify state payload passed to async_system_one has utterance and home."""
     await conversation.async_converse(
         hass=hass,
         text="Lock front door",
@@ -2170,30 +2163,30 @@ async def test_tier2_f5_reload_listener_unregistered_on_unload(
 async def test_tier2_f6_client_empty_questions_dict(
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F6.B1: Calling client.async_evaluate with empty questions dictionary."""
+    """F6.B1: Calling client.async_system_one with empty questions dictionary."""
     mock_client.set_answers({})
-    res = await mock_client.async_evaluate(state="status check", questions={})
-    assert res["answers"] == {}
+    res = await mock_client.async_system_one(state="status check", questions={})
+    assert res.answers == {}
 
 
 async def test_tier2_f6_client_complex_state_dict(
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F6.B2: Calling client.async_evaluate with deeply nested dict state."""
+    """F6.B2: Calling client.async_system_one with deeply nested dict state."""
     state = {
         "utterance": "turn on lights",
         "home": "Main Villa",
         "devices": [{"id": "d1", "val": 100}],
     }
-    await mock_client.async_evaluate(state=state, questions={})
+    await mock_client.async_system_one(state=state, questions={})
     assert mock_client.calls[0]["state"] == state
 
 
 async def test_tier2_f6_client_empty_string_state(
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """F6.B3: Calling client.async_evaluate with empty string state."""
-    await mock_client.async_evaluate(state="", questions={})
+    """F6.B3: Calling client.async_system_one with empty string state."""
+    await mock_client.async_system_one(state="", questions={})
     assert mock_client.calls[0]["state"] == ""
 
 
@@ -2201,7 +2194,7 @@ async def test_tier2_f6_client_custom_model_override(
     mock_client: MockTypeSafeClient,
 ) -> None:
     """F6.B4: Explicit model parameter overrides client default."""
-    await mock_client.async_evaluate(state="test", questions={}, model="jev-turbo")
+    await mock_client.async_system_one(state="test", questions={}, model="jev-turbo")
     assert mock_client.calls[0]["model"] == "jev-turbo"
 
 
@@ -2228,23 +2221,20 @@ async def test_tier2_f6_client_malformed_non_dict_response(
 async def test_tier2_f7_choice_question_empty_criteria() -> None:
     """F7.B1: ChoiceQuestion with empty criteria dictionary."""
     cq = ChoiceQuestion(instructions="Select one", criteria={})
-    payload = cq.to_dict()
-    assert payload["criteria"] == {}
+    assert cq.criteria == {}
 
 
 async def test_tier2_f7_choice_question_dict_instructions() -> None:
     """F7.B2: ChoiceQuestion with structured dict instructions."""
     instr = {"task": "intent_detection", "domain": "home_assistant"}
     cq = ChoiceQuestion(instructions=instr, criteria={"opt": "Option"})
-    payload = cq.to_dict()
-    assert payload["instructions"] == instr
+    assert cq.instructions == instr
 
 
 async def test_tier2_f7_noul_question_empty_instructions() -> None:
     """F7.B3: NoulQuestion with empty instructions."""
     nq = NoulQuestion(instructions="")
-    payload = nq.to_dict()
-    assert payload["instructions"] == ""
+    assert nq.instructions == ""
 
 
 async def test_tier2_f7_noul_answer_exact_boundary_values() -> None:
@@ -3224,12 +3214,12 @@ async def test_tier2_f15_fallback_agent_raises_exception(
     assert res.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
 
 
-async def test_tier2_f15_fallback_agent_in_data_when_not_in_options(
+async def test_tier2_f15_fallback_agent_in_data_ignored_without_options(
     hass: HomeAssistant,
     mock_client: MockTypeSafeClient,
     mock_fallback_agent: MockFallbackAgent,
 ) -> None:
-    """F15.B2: Fallback agent configured in entry.data used when absent from options."""
+    """F15.B2: Fallback agent in entry.data is ignored; options is strictly required."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title=DEFAULT_NAME,
@@ -3254,14 +3244,15 @@ async def test_tier2_f15_fallback_agent_in_data_when_not_in_options(
             "is_compound": {"noul": 0.0},
         }
     )
-    await conversation.async_converse(
+    res = await conversation.async_converse(
         hass=hass,
         text="Check fallback from data",
         conversation_id=None,
         context=Context(),
         agent_id=entry.entry_id,
     )
-    assert len(mock_fallback_agent.calls) == 1
+    assert len(mock_fallback_agent.calls) == 0
+    assert res.response.response_type is intent.IntentResponseType.ERROR
 
 
 async def test_tier2_f15_fallback_agent_nonexistent_id(

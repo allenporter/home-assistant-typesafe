@@ -74,129 +74,6 @@ async def test_client_validate_key_server_error(
         await client.async_validate_key()
 
 
-async def test_client_evaluate_success(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate succeeds on HTTP 200."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=200,
-        json={
-            "model": "jev-latest",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-            "answers": {
-                "intent": {
-                    "type": "choice",
-                    "choice": "HassTurnOn",
-                    "confidence": 0.95,
-                    "probabilities": {"HassTurnOn": 0.95},
-                }
-            },
-        },
-    )
-    res = await client.async_evaluate(
-        state="turn on kitchen light",
-        questions={"intent": {"type": "choice", "instructions": "Intent"}},
-    )
-    assert res["answers"]["intent"]["choice"] == "HassTurnOn"
-
-
-async def test_client_evaluate_auth_error(
-    hass: HomeAssistant,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate raises TypeSafeAuthError on HTTP 401."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=401,
-    )
-    http_client = httpx_client.get_async_client(hass)
-    client = TypeSafeClient(api_key="bad-key", http_client=http_client)
-    with pytest.raises(TypeSafeAuthError, match="Invalid API key"):
-        await client.async_evaluate(
-            state="turn on light",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
-async def test_client_evaluate_rate_limit(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate raises TypeSafeRateLimitError on HTTP 429."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=429,
-        headers={"Retry-After": "30"},
-    )
-    with pytest.raises(TypeSafeRateLimitError, match="Rate limited"):
-        await client.async_evaluate(
-            state="turn on light",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
-async def test_client_evaluate_server_error(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate raises TypeSafeError on HTTP 500."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=500,
-        text="Internal Server Error",
-    )
-    with pytest.raises(TypeSafeError, match="failed"):
-        await client.async_evaluate(
-            state="turn on light",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
-async def test_client_evaluate_timeout(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate handles connection / timeout errors."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").mock(
-        side_effect=httpx.ConnectTimeout("Timed out")
-    )
-    with pytest.raises(TypeSafeError, match=r"Request failed|failed"):
-        await client.async_evaluate(
-            state="turn on light",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
-async def test_client_evaluate_422_unprocessable_entity(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate raises TypeSafeError on HTTP 422 Unprocessable Entity."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=422,
-        text='{"error": "criteria must have at least 2 choices"}',
-    )
-    with pytest.raises(TypeSafeError, match="422"):
-        await client.async_evaluate(
-            state="turn on lights",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
-async def test_client_evaluate_529_overloaded(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate raises TypeSafeError on HTTP 529 Overloaded."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=529,
-        text='{"error": "Site is temporarily overloaded"}',
-    )
-    with pytest.raises(TypeSafeError, match="529"):
-        await client.async_evaluate(
-            state="turn on lights",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
 async def test_client_validate_key_422(
     client: TypeSafeClient,
     respx_mock: MockRouter,
@@ -219,37 +96,6 @@ async def test_client_validate_key_529(
     )
     with pytest.raises(TypeSafeError, match="529"):
         await client.async_validate_key()
-
-
-async def test_client_evaluate_rate_limit_without_retry_header(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate handles HTTP 429 when Retry-After header is omitted."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=429,
-    )
-    with pytest.raises(TypeSafeRateLimitError, match="None"):
-        await client.async_evaluate(
-            state="turn on lights",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
-
-
-async def test_client_evaluate_malformed_json_syntax(
-    client: TypeSafeClient,
-    respx_mock: MockRouter,
-) -> None:
-    """Test evaluate raises TypeSafeError when response body is not valid JSON."""
-    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
-        status_code=200,
-        text="<html>Internal Gateway Timeout</html>",
-    )
-    with pytest.raises(TypeSafeError, match=r"Request failed|failed"):
-        await client.async_evaluate(
-            state="turn on lights",
-            questions={"q": {"type": "choice", "instructions": "test"}},
-        )
 
 
 async def test_client_system_one_success(
@@ -281,3 +127,130 @@ async def test_client_system_one_success(
     assert resp.model == "jev-latest"
     assert resp.choices["intent"].choice == "HassTurnOn"
     assert resp.choices["intent"].confidence == 0.98
+
+
+async def test_client_system_one_auth_error(
+    hass: HomeAssistant,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeAuthError on HTTP 401."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=401,
+    )
+    http_client = httpx_client.get_async_client(hass)
+    client = TypeSafeClient(api_key="bad-key", http_client=http_client)
+    with pytest.raises(TypeSafeAuthError, match="Invalid API key"):
+        await client.async_system_one(
+            state="turn on light",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_rate_limit(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeRateLimitError on HTTP 429."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=429,
+        headers={"Retry-After": "30"},
+    )
+    with pytest.raises(TypeSafeRateLimitError, match="Rate limited. Retry after: 30"):
+        await client.async_system_one(
+            state="turn on light",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_server_error(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeError on HTTP 500."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=500,
+        text="Internal Server Error",
+    )
+    with pytest.raises(TypeSafeError, match="System One evaluation failed"):
+        await client.async_system_one(
+            state="turn on light",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_timeout(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeError on connection timeout."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").mock(
+        side_effect=httpx.ConnectTimeout("Timed out")
+    )
+    with pytest.raises(TypeSafeError, match="Request failed"):
+        await client.async_system_one(
+            state="turn on light",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_422_unprocessable_entity(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeError on HTTP 422 Unprocessable Entity."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=422,
+        text='{"error": "criteria must have at least 2 choices"}',
+    )
+    with pytest.raises(TypeSafeError, match="422"):
+        await client.async_system_one(
+            state="turn on lights",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_529_overloaded(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeError on HTTP 529 Overloaded."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=529,
+        text='{"error": "Site is temporarily overloaded"}',
+    )
+    with pytest.raises(TypeSafeError, match="529"):
+        await client.async_system_one(
+            state="turn on lights",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_rate_limit_without_retry_header(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one handles HTTP 429 when Retry-After header is omitted."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=429,
+    )
+    with pytest.raises(TypeSafeRateLimitError, match="None"):
+        await client.async_system_one(
+            state="turn on lights",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )
+
+
+async def test_client_system_one_malformed_json_syntax(
+    client: TypeSafeClient,
+    respx_mock: MockRouter,
+) -> None:
+    """Test async_system_one raises TypeSafeError when response body is not valid JSON."""
+    respx_mock.post("https://api.typesafe.ai/v1/systemone").respond(
+        status_code=200,
+        text="<html>Internal Gateway Timeout</html>",
+    )
+    with pytest.raises(TypeSafeError, match=r"Request failed|failed"):
+        await client.async_system_one(
+            state="turn on lights",
+            questions={"q": Choice(instructions="test", criteria={"a": "b"})},
+        )

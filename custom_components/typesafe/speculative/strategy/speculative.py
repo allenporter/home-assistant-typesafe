@@ -208,14 +208,8 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
     def _safe_choice(answers: dict[str, Any], key: str) -> str | None:
         """Safely extract string choice from answer primitive."""
         primitive = answers.get(key)
-        if primitive is None:
-            return None
         if isinstance(primitive, ChoiceAnswer):
             return primitive.choice if primitive.choice else None
-        if isinstance(primitive, dict):
-            choice = primitive.get("choice")
-            if isinstance(choice, str) and choice:
-                return choice
         return None
 
     @staticmethod
@@ -238,14 +232,10 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
         utterance: str,
         context: StrategyContext,
     ) -> Decision:
-        """Safely parse and validate TypeSafe API evaluation response or PredictionResult."""
-        if isinstance(response, PredictionResult):
-            answers: dict[str, Any] = response.answers
-        elif isinstance(response, dict) and isinstance(response.get("answers"), dict):
-            answers = response["answers"]
-        else:
+        """Safely parse and validate TypeSafe PredictionResult."""
+        if not isinstance(response, PredictionResult):
             _LOGGER.warning(
-                "TypeSafe evaluation returned non-dict response (%s): %r",
+                "TypeSafe evaluation returned unexpected response (%s): %r",
                 type(response).__name__,
                 response,
             )
@@ -253,16 +243,16 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                 intent_name=None,
                 confidence=0.0,
                 should_escalate=True,
-                escalation_reason="Malformed TypeSafe response: expected JSON object",
+                escalation_reason="Malformed TypeSafe response: expected PredictionResult",
             )
+
+        answers: dict[str, Any] = response.answers
 
         # 1. Check compound command condition safely
         compound_ans = answers.get("is_compound")
-        compound_noul = 0.0
-        if isinstance(compound_ans, NoulAnswer):
-            compound_noul = compound_ans.noul
-        elif isinstance(compound_ans, dict):
-            compound_noul = self._safe_float(compound_ans.get("noul"), 0.0)
+        compound_noul = (
+            compound_ans.noul if isinstance(compound_ans, NoulAnswer) else 0.0
+        )
 
         if compound_noul > self._compound_threshold:
             return Decision(
@@ -276,29 +266,7 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
 
         # 2. Check intent choice and confidence safely
         intent_ans = answers.get("intent")
-        intent_choice: str | None = None
-        intent_conf = 0.0
-        probabilities: dict[str, float] = {}
-
-        if isinstance(intent_ans, ChoiceAnswer):
-            intent_choice = intent_ans.choice if intent_ans.choice else None
-            intent_conf = intent_ans.confidence
-            probabilities = {
-                str(k): self._safe_float(v, 0.0)
-                for k, v in intent_ans.probabilities.items()
-            }
-        elif isinstance(intent_ans, dict):
-            raw_choice = intent_ans.get("choice")
-            intent_choice = (
-                str(raw_choice) if isinstance(raw_choice, str) and raw_choice else None
-            )
-            intent_conf = self._safe_float(intent_ans.get("confidence"), 0.0)
-            raw_probs = intent_ans.get("probabilities")
-            if isinstance(raw_probs, dict):
-                probabilities = {
-                    str(k): self._safe_float(v, 0.0) for k, v in raw_probs.items()
-                }
-        else:
+        if not isinstance(intent_ans, ChoiceAnswer):
             _LOGGER.warning(
                 "Response missing or invalid 'intent' answer: %r", intent_ans
             )
@@ -309,6 +277,13 @@ class SpeculativeFanOutStrategy(DecisionStrategy):
                 escalation_reason="Missing or invalid intent answer",
                 raw_answers=answers,
             )
+
+        intent_choice = intent_ans.choice if intent_ans.choice else None
+        intent_conf = intent_ans.confidence
+        probabilities = {
+            str(k): self._safe_float(v, 0.0)
+            for k, v in intent_ans.probabilities.items()
+        }
 
         top_prob = intent_conf
         if intent_choice and intent_choice in probabilities:

@@ -104,9 +104,7 @@ class TypeSafeConversationEntity(
         )
 
         if decision.should_escalate or not decision.intent_name:
-            fallback_agent = self._entry.options.get(
-                CONF_FALLBACK_AGENT
-            ) or self._entry.data.get(CONF_FALLBACK_AGENT)
+            fallback_agent = self._entry.options.get(CONF_FALLBACK_AGENT)
 
             if fallback_agent:
                 _LOGGER.debug(

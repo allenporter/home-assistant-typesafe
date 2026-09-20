@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from typing import Any
 from unittest.mock import patch
 
@@ -14,6 +14,16 @@ from homeassistant.helpers import intent
 from homeassistant.setup import async_setup_component
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from typesafe_sdk import (
+    Choice,
+    ChoiceAnswer as SDKChoiceAnswer,
+    Noul,
+    NoulAnswer as SDKNoulAnswer,
+    Score,
+    ScoreAnswer as SDKScoreAnswer,
+    SystemOneResponse,
+    Usage,
+)
 
 from custom_components.typesafe.const import (
     CONF_API_KEY,
@@ -22,6 +32,7 @@ from custom_components.typesafe.const import (
     DEFAULT_NAME,
     DOMAIN,
 )
+from custom_components.typesafe.strategy import Question
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +71,7 @@ class MockTypeSafeClient:
         self.calls: list[dict[str, Any]] = []
 
     def set_answers(self, answers: dict[str, Any] | None) -> None:
-        """Set answers returned by async_evaluate."""
+        """Set answers returned by async_system_one."""
         self.answers = answers
 
     async def async_validate_key(self) -> bool:
@@ -69,39 +80,66 @@ class MockTypeSafeClient:
             raise self.validate_error
         return self.validate_result
 
-    async def async_evaluate(
+    async def async_system_one(
         self,
-        state: str | dict[str, Any],
-        questions: dict[str, Any],
+        state: Any,
+        questions: Mapping[str, Question],
         model: str | None = None,
-    ) -> dict[str, Any]:
-        """Evaluate mock."""
+    ) -> SystemOneResponse:
+        """System one mock."""
+        serialized = {
+            k: v.model_dump() if isinstance(v, (Choice, Noul, Score)) else v
+            for k, v in questions.items()
+        }
         self.calls.append(
             {
                 "state": state,
-                "questions": questions,
-                "model": model,
+                "questions": serialized,
+                "raw_questions": questions,
+                "model": model or "jev-latest",
             }
         )
         if self.evaluate_error:
             raise self.evaluate_error
-        return {
-            "model": model or "jev-latest",
-            "answers": self.answers,
-        }
 
-    async def async_system_one(
-        self,
-        state: Any,
-        questions: Any,
-        model: str | None = None,
-    ) -> Any:
-        """System one mock."""
-        serialized = {
-            k: v.model_dump() if hasattr(v, "model_dump") else v
-            for k, v in questions.items()
-        }
-        return await self.async_evaluate(state=state, questions=serialized, model=model)
+        sdk_answers: dict[str, Any] = {}
+        if self.answers:
+            for k, answer_val in self.answers.items():
+                if isinstance(
+                    answer_val, (SDKChoiceAnswer, SDKNoulAnswer, SDKScoreAnswer)
+                ):
+                    sdk_answers[k] = answer_val
+                elif isinstance(answer_val, dict):
+                    if "choice" in answer_val:
+                        raw_choice = answer_val["choice"]
+                        conf = float(answer_val.get("confidence", 1.0))
+                        probs = answer_val.get("probabilities")
+                        if probs is None:
+                            probs = {raw_choice: conf} if raw_choice is not None else {}
+                        sdk_answers[k] = SDKChoiceAnswer(
+                            choice=raw_choice,
+                            confidence=conf,
+                            probabilities=probs,
+                        )
+                    elif "noul" in answer_val:
+                        sdk_answers[k] = SDKNoulAnswer(noul=float(answer_val["noul"]))
+                    elif "score" in answer_val:
+                        sdk_answers[k] = SDKScoreAnswer(
+                            score=float(answer_val["score"]),
+                            confidence=float(answer_val.get("confidence", 1.0)),
+                            legend=answer_val.get("legend", {}),
+                            probabilities=answer_val.get("probabilities", {}),
+                        )
+                    else:
+                        sdk_answers[k] = answer_val
+                else:
+                    sdk_answers[k] = answer_val
+
+        return SystemOneResponse(
+            model=model or "jev-latest",
+            answers=sdk_answers,
+            usage=Usage(input_tokens=10, output_tokens=5),
+        )
 
 
 @pytest.fixture(name="mock_client")

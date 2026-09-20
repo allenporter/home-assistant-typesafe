@@ -30,10 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TypeSafeConfigEntry) -> 
     api_key = entry.data[CONF_API_KEY]
     model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
     confidence_threshold = float(
-        entry.options.get(
-            CONF_CONFIDENCE_THRESHOLD,
-            entry.data.get(CONF_CONFIDENCE_THRESHOLD, DEFAULT_CONFIDENCE_THRESHOLD),
-        )
+        entry.options.get(CONF_CONFIDENCE_THRESHOLD, DEFAULT_CONFIDENCE_THRESHOLD)
     )
 
     http_client = httpx_client.get_async_client(hass)

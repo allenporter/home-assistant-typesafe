@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from custom_components.typesafe.client import TypeSafeClient
+from custom_components.typesafe.client import TypeSafeClient, TypeSafeError
 from custom_components.typesafe.engine import TypeSafeDecisionEngine
 from custom_components.typesafe.speculative.models import (
     ChoiceAnswer,
@@ -33,18 +33,27 @@ def engine_fixture(mock_client: AsyncMock) -> TypeSafeDecisionEngine:
 async def test_engine_async_predict_question_serialization(
     engine: TypeSafeDecisionEngine, mock_client: AsyncMock
 ) -> None:
-    """Test that canonical Question primitives are correctly serialized for TypeSafe API."""
+    """Test that canonical Question primitives are correctly converted to SDK models."""
     import typesafe_sdk
 
-    mock_client.async_system_one.return_value = {
-        "model": "jev-latest",
-        "answers": {
-            "intent": {"type": "choice", "choice": "HassTurnOn", "confidence": 0.95},
-            "is_compound": {"type": "noul", "noul": 0.05, "confidence": 0.0},
-            "quality": {"type": "score", "score": 2.5, "confidence": 0.8},
+    mock_client.async_system_one.return_value = typesafe_sdk.SystemOneResponse(
+        model="jev-latest",
+        usage=typesafe_sdk.Usage(input_tokens=100, output_tokens=20),
+        answers={
+            "intent": typesafe_sdk.ChoiceAnswer(
+                choice="HassTurnOn",
+                confidence=0.95,
+                probabilities={"HassTurnOn": 0.95},
+            ),
+            "is_compound": typesafe_sdk.NoulAnswer(noul=0.05),
+            "quality": typesafe_sdk.ScoreAnswer(
+                score=2.5,
+                confidence=0.8,
+                legend={0: "Low", 1: "Medium", 2: "High"},
+                probabilities={0: 0.1, 1: 0.3, 2: 0.6},
+            ),
         },
-        "usage": {"input_tokens": 100, "output_tokens": 20},
-    }
+    )
 
     questions = {
         "intent": ChoiceQuestion(
@@ -56,7 +65,6 @@ async def test_engine_async_predict_question_serialization(
             instructions="Rate quality",
             criteria=["Low", "Medium", "High"],
         ),
-        "raw_dict": {"type": "choice", "instructions": "Custom", "criteria": {}},
     }
 
     result = await engine.async_predict(
@@ -79,9 +87,6 @@ async def test_engine_async_predict_question_serialization(
     assert sdk_q["quality"].instructions == "Rate quality"
     assert sdk_q["quality"].criteria == ["Low", "Medium", "High"]
 
-    assert isinstance(sdk_q["raw_dict"], typesafe_sdk.Choice)
-    assert sdk_q["raw_dict"].instructions == "Custom"
-
     assert result.model == "jev-latest"
     assert result.usage == {"input_tokens": 100, "output_tokens": 20}
     assert isinstance(result.answers["intent"], ChoiceAnswer)
@@ -93,43 +98,10 @@ async def test_engine_async_predict_question_serialization(
     assert result.answers["quality"].score == 2.5
 
 
-async def test_engine_async_predict_inferred_types_and_none_choice(
+async def test_engine_async_predict_empty_choice_handled(
     engine: TypeSafeDecisionEngine, mock_client: AsyncMock
 ) -> None:
-    """Test inferring answer types when 'type' field is missing, and handling None choice."""
-    mock_client.async_system_one.return_value = {
-        "model": "jev-latest",
-        "answers": {
-            "intent": {"choice": None, "confidence": 0.9},
-            "is_compound": {"noul": 0.1},
-            "rating": {"score": 1.5, "probabilities": {"0": 0.2, "1": 0.8}},
-            "non_dict": "invalid",
-        },
-    }
-
-    questions = {
-        "intent": ChoiceQuestion(instructions="Select intent", criteria={}),
-        "is_compound": NoulQuestion(instructions="Is it compound?"),
-        "rating": ScoreQuestion(instructions="Rate", criteria=["A", "B"]),
-    }
-
-    result = await engine.async_predict(state="Test", questions=questions)
-
-    # None choice should become empty string, not string "None"
-    assert isinstance(result.answers["intent"], ChoiceAnswer)
-    assert result.answers["intent"].choice == ""
-    assert result.answers["intent"].confidence == 0.9
-    assert isinstance(result.answers["is_compound"], NoulAnswer)
-    assert result.answers["is_compound"].noul == 0.1
-    assert isinstance(result.answers["rating"], ScoreAnswer)
-    assert result.answers["rating"].score == 1.5
-    assert "non_dict" not in result.answers
-
-
-async def test_engine_async_predict_system_one_response(
-    engine: TypeSafeDecisionEngine, mock_client: AsyncMock
-) -> None:
-    """Test engine handling of typed SystemOneResponse directly from async_system_one."""
+    """Test that empty string choice in SDK ChoiceAnswer is preserved."""
     import typesafe_sdk
 
     mock_client.async_system_one.return_value = typesafe_sdk.SystemOneResponse(
@@ -137,28 +109,87 @@ async def test_engine_async_predict_system_one_response(
         usage=typesafe_sdk.Usage(input_tokens=50, output_tokens=10),
         answers={
             "intent": typesafe_sdk.ChoiceAnswer(
-                choice="HassTurnOn",
-                confidence=0.97,
-                probabilities={"HassTurnOn": 0.97},
+                choice="",
+                confidence=0.9,
+                probabilities={},
             ),
-            "is_compound": typesafe_sdk.NoulAnswer(noul=0.02),
+            "is_compound": typesafe_sdk.NoulAnswer(noul=0.1),
         },
     )
 
     questions = {
-        "intent": ChoiceQuestion(
-            instructions="Intent", criteria={"HassTurnOn": "Turn on"}
-        ),
-        "is_compound": NoulQuestion(instructions="Compound?"),
+        "intent": ChoiceQuestion(instructions="Select intent", criteria={}),
+        "is_compound": NoulQuestion(instructions="Is it compound?"),
     }
 
-    result = await engine.async_predict(state="Turn on the lights", questions=questions)
+    result = await engine.async_predict(state="Test", questions=questions)
+
+    assert isinstance(result.answers["intent"], ChoiceAnswer)
+    assert result.answers["intent"].choice == ""
+    assert result.answers["intent"].confidence == 0.9
+    assert isinstance(result.answers["is_compound"], NoulAnswer)
+    assert result.answers["is_compound"].noul == 0.1
+
+
+async def test_engine_async_predict_with_sdk_primitives_directly(
+    engine: TypeSafeDecisionEngine, mock_client: AsyncMock
+) -> None:
+    """Test passing typesafe_sdk primitives directly without canonical wrappers."""
+    import typesafe_sdk
+
+    mock_client.async_system_one.return_value = typesafe_sdk.SystemOneResponse(
+        model="jev-latest",
+        usage=typesafe_sdk.Usage(input_tokens=20, output_tokens=5),
+        answers={
+            "direct_choice": typesafe_sdk.ChoiceAnswer(
+                choice="opt1",
+                confidence=0.99,
+                probabilities={"opt1": 0.99},
+            ),
+        },
+    )
+
+    questions = {
+        "direct_choice": typesafe_sdk.Choice(
+            instructions="Pick one", criteria={"opt1": "First", "opt2": "Second"}
+        ),
+    }
+
+    result = await engine.async_predict(state="Test direct", questions=questions)
 
     assert mock_client.async_system_one.call_count == 1
-    assert result.model == "jev-latest"
-    assert result.usage == {"input_tokens": 50, "output_tokens": 10}
-    assert isinstance(result.answers["intent"], ChoiceAnswer)
-    assert result.answers["intent"].choice == "HassTurnOn"
-    assert result.answers["intent"].confidence == 0.97
-    assert isinstance(result.answers["is_compound"], NoulAnswer)
-    assert result.answers["is_compound"].noul == 0.02
+    call_args = mock_client.async_system_one.call_args[1]
+    assert call_args["questions"]["direct_choice"] is questions["direct_choice"]
+    choice_answer = result.answers["direct_choice"]
+    assert isinstance(choice_answer, ChoiceAnswer)
+    assert choice_answer.choice == "opt1"
+    assert choice_answer.confidence == 0.99
+
+
+async def test_engine_async_predict_client_exception_propagates(
+    engine: TypeSafeDecisionEngine, mock_client: AsyncMock
+) -> None:
+    """Test that TypeSafeError raised by client propagates from async_predict."""
+    mock_client.async_system_one.side_effect = TypeSafeError("API down")
+
+    with pytest.raises(TypeSafeError, match="API down"):
+        await engine.async_predict(
+            state="Test",
+            questions={"q": ChoiceQuestion(instructions="Pick", criteria={})},
+        )
+
+
+async def test_engine_async_predict_empty_questions(
+    engine: TypeSafeDecisionEngine, mock_client: AsyncMock
+) -> None:
+    """Test that predicting with empty questions returns empty answers."""
+    import typesafe_sdk
+
+    mock_client.async_system_one.return_value = typesafe_sdk.SystemOneResponse(
+        model="jev-latest",
+        usage=typesafe_sdk.Usage(input_tokens=0, output_tokens=0),
+        answers={},
+    )
+
+    result = await engine.async_predict(state="Test", questions={})
+    assert result.answers == {}

@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-
 from .const import DEFAULT_CONFIDENCE_THRESHOLD
 from .speculative.models import (
     ChoiceAnswer,
-    ChoiceQuestion as CanonicalChoiceQuestion,
+    ChoiceQuestion,
     NoulAnswer,
-    NoulQuestion as CanonicalNoulQuestion,
+    NoulQuestion,
     Question,
     ScoreAnswer,
     ScoreQuestion,
 )
 from .speculative.strategy.base import (
+    Decision,
     Decision as DecisionResult,
     StrategyContext,
 )
@@ -27,43 +25,7 @@ from .speculative.strategy.discovery import (
 )
 from .speculative.strategy.speculative import SpeculativeFanOutStrategy
 
-# Backward-compatible aliases
-Decision = DecisionResult
-
-
-class ChoiceQuestion(CanonicalChoiceQuestion):
-    """Choice question primitive."""
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to API payload dict."""
-        return {
-            "type": "choice",
-            "instructions": self.instructions,
-            "criteria": self.criteria,
-        }
-
-
-@dataclass(slots=True, frozen=True)
-class NoulQuestion(CanonicalNoulQuestion):
-    """Noul question primitive with optional criteria."""
-
-    criteria: dict[str, str] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to API payload dict."""
-        payload: dict[str, Any] = {
-            "type": "noul",
-            "instructions": self.instructions,
-        }
-        if self.criteria is not None:
-            payload["criteria"] = self.criteria
-        return payload
-
-
-class DecisionStrategy(SpeculativeFanOutStrategy):
-    """DecisionStrategy subclass preserving legacy methods and properties."""
-
-    pass
+DecisionStrategy = SpeculativeFanOutStrategy
 
 
 __all__ = [

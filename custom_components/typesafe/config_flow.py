@@ -101,10 +101,7 @@ class TypeSafeOptionsFlowHandler(OptionsFlow):
                 vol.Optional(
                     CONF_CONFIDENCE_THRESHOLD,
                     default=self.config_entry.options.get(
-                        CONF_CONFIDENCE_THRESHOLD,
-                        self.config_entry.data.get(
-                            CONF_CONFIDENCE_THRESHOLD, DEFAULT_CONFIDENCE_THRESHOLD
-                        ),
+                        CONF_CONFIDENCE_THRESHOLD, DEFAULT_CONFIDENCE_THRESHOLD
                     ),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
