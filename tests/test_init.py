@@ -18,7 +18,7 @@ async def test_setup_and_unload_entry(
     assert config_entry.state is ConfigEntryState.LOADED
     assert config_entry.runtime_data is not None
     assert config_entry.runtime_data.client is not None
-    assert config_entry.runtime_data.strategy is not None
+    assert config_entry.runtime_data.flow is not None
 
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     await hass.async_block_till_done()
@@ -32,7 +32,7 @@ async def test_reload_on_options_update(
 ) -> None:
     """Test config entry dynamically reloads on options update."""
     assert config_entry.state is ConfigEntryState.LOADED
-    assert config_entry.runtime_data.strategy.confidence_threshold == 0.7
+    assert config_entry.runtime_data.flow.resolver.confidence_threshold == 0.7
 
     hass.config_entries.async_update_entry(
         config_entry,
@@ -43,4 +43,4 @@ async def test_reload_on_options_update(
     await hass.async_block_till_done()
 
     assert config_entry.state is ConfigEntryState.LOADED
-    assert config_entry.runtime_data.strategy.confidence_threshold == 0.85
+    assert config_entry.runtime_data.flow.resolver.confidence_threshold == 0.85

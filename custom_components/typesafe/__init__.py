@@ -18,7 +18,7 @@ from .const import (
 )
 from .engine import TypeSafeDecisionEngine
 from .models import TypeSafeConfigEntry, TypeSafeData
-from .speculative.strategy import SpeculativeFanOutStrategy as DecisionStrategy
+from .speculative.flow import create_decision_flow
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: TypeSafeConfigEntry) -> 
     http_client = httpx_client.get_async_client(hass)
     client = TypeSafeClient(api_key=api_key, http_client=http_client, model=model)
     engine = TypeSafeDecisionEngine(client=client)
-    strategy = DecisionStrategy(confidence_threshold=confidence_threshold)
+    flow = create_decision_flow(confidence_threshold=confidence_threshold)
 
-    entry.runtime_data = TypeSafeData(client=client, engine=engine, strategy=strategy)
+    entry.runtime_data = TypeSafeData(client=client, engine=engine, flow=flow)
 
     await hass.config_entries.async_forward_entry_setups(
         entry,

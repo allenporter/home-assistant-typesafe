@@ -1,11 +1,10 @@
-"""In-memory fake decision engine for testing and deterministic evaluation."""
+"""Deterministic, configurable in-memory decision engine test double."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from ..engine import DecisionEngine, PredictionResult
 from ..models import (
     Answer,
     ChoiceAnswer,
@@ -16,6 +15,7 @@ from ..models import (
     ScoreAnswer,
     ScoreQuestion,
 )
+from ..scoring.engine import DecisionEngine, PredictionResult
 
 
 class FakeDecisionEngine(DecisionEngine):

@@ -16,7 +16,7 @@ from homeassistant.helpers import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.typesafe.speculative.strategy import StrategyContext
+from custom_components.typesafe.speculative.context import DecisionContext
 
 DEFAULT_FIXTURES_PATH = (
     Path(__file__).parents[1] / "testdata" / "family-farmhouse-us" / "_fixtures.yaml"
@@ -194,7 +194,7 @@ def register_standard_intents(hass: HomeAssistant) -> None:
 def load_synthetic_home_fixtures(
     hass: HomeAssistant,
     fixtures_path: Path = DEFAULT_FIXTURES_PATH,
-) -> StrategyContext:
+) -> DecisionContext:
     """Load a synthetic home _fixtures.yaml into Home Assistant registries and states."""
     data: dict[str, Any] = yaml.safe_load(fixtures_path.read_text(encoding="utf-8"))
 
@@ -265,12 +265,11 @@ def load_synthetic_home_fixtures(
     # Register standard intents
     register_standard_intents(hass)
 
-    return StrategyContext(
+    return DecisionContext(
         hass=hass,
         area_registry=area_reg,
         entity_registry=entity_reg,
         states=hass.states.async_all(),
-        home_name="Family Farmhouse",
         language="en",
     )
 

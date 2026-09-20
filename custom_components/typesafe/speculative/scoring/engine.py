@@ -1,4 +1,4 @@
-"""Abstract base interfaces for System One decision engines."""
+"""Abstract base interfaces and result structures for System One decision engines."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import Answer, Question
+from ..models import Answer, Question
 
 
 @dataclass(slots=True)

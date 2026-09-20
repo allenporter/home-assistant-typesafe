@@ -16,45 +16,35 @@ import pytest
 from custom_components.typesafe.client import TypeSafeClient
 from custom_components.typesafe.const import DEFAULT_MODEL
 from custom_components.typesafe.engine import TypeSafeDecisionEngine
-from custom_components.typesafe.speculative.strategy import (
-    DecisionStrategy,
-    DomainBoostedFanOutStrategy,
-    IntentPrunedFanOutStrategy,
-    SpeculativeFanOutStrategy,
-    StandardFanOutStrategy,
+from custom_components.typesafe.speculative.flow import (
+    DecisionFlow,
+    create_decision_flow,
 )
 from tests.conftest import MockTypeSafeClient
 
 
-@pytest.fixture(name="typesafe_strategy")
-def typesafe_strategy_fixture() -> SpeculativeFanOutStrategy:
-    """Fixture providing a default DecisionStrategy for TypeSafe."""
-    return SpeculativeFanOutStrategy()
+@pytest.fixture(name="typesafe_flow")
+def typesafe_flow_fixture() -> DecisionFlow:
+    """Fixture providing a default DecisionFlow for TypeSafe."""
+    return create_decision_flow()
 
 
-# Alias for convenience in eval tests
-@pytest.fixture(name="strategy")
-def strategy_alias_fixture(typesafe_strategy: DecisionStrategy) -> DecisionStrategy:
-    """Alias for typesafe_strategy fixture."""
-    return typesafe_strategy
+@pytest.fixture(name="flow_standard")
+def flow_standard_fixture() -> DecisionFlow:
+    """Fixture providing an unpruned DecisionFlow."""
+    return create_decision_flow(domain_filter_mode="none")
 
 
-@pytest.fixture(name="strategy_standard")
-def strategy_standard_fixture() -> StandardFanOutStrategy:
-    """Fixture providing an unpruned StandardFanOutStrategy."""
-    return StandardFanOutStrategy()
+@pytest.fixture(name="flow_pruned")
+def flow_pruned_fixture() -> DecisionFlow:
+    """Fixture providing an IntentPruned DecisionFlow."""
+    return create_decision_flow(domain_filter_mode="strict")
 
 
-@pytest.fixture(name="strategy_pruned")
-def strategy_pruned_fixture() -> IntentPrunedFanOutStrategy:
-    """Fixture providing an IntentPrunedFanOutStrategy."""
-    return IntentPrunedFanOutStrategy()
-
-
-@pytest.fixture(name="strategy_boosted")
-def strategy_boosted_fixture() -> DomainBoostedFanOutStrategy:
-    """Fixture providing a DomainBoostedFanOutStrategy."""
-    return DomainBoostedFanOutStrategy()
+@pytest.fixture(name="flow_boosted")
+def flow_boosted_fixture() -> DecisionFlow:
+    """Fixture providing a DomainBoosted DecisionFlow."""
+    return create_decision_flow(domain_filter_mode="boost")
 
 
 @pytest.fixture(name="mock_typesafe_engine")

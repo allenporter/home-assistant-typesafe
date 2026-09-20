@@ -14,23 +14,26 @@ from homeassistant.components import conversation
 from homeassistant.components.homeassistant.exposed_entities import (
     async_expose_entity,
 )
+from homeassistant.const import MATCH_ALL
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import area_registry as ar, intent
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.typesafe.const import (
+    CONF_API_KEY,
     CONF_CONFIDENCE_THRESHOLD,
     CONF_FALLBACK_AGENT,
+    DEFAULT_NAME,
+    DOMAIN,
 )
 from tests.conftest import (
     MockBaseIntentHandler,
     MockFallbackAgent,
-    MockLightSetIntentHandler,
-    MockTurnOffIntentHandler,
     MockTurnOnIntentHandler,
     MockTypeSafeClient,
 )
+from tests.eval.fixtures_standard import MockClimateIntentHandler
 
 
 async def test_process_turn_on_entity_high_confidence(
@@ -68,7 +71,6 @@ async def test_process_turn_on_entity_high_confidence(
 
     assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
     handler = mock_intent_handlers["HassTurnOn"]
-    assert isinstance(handler, MockTurnOnIntentHandler)
     assert len(handler.handled_intents) == 1
     intent_obj = handler.handled_intents[0]
     assert intent_obj.intent_type == "HassTurnOn"
@@ -108,7 +110,6 @@ async def test_process_turn_off_entity_high_confidence(
 
     assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
     handler = mock_intent_handlers["HassTurnOff"]
-    assert isinstance(handler, MockTurnOffIntentHandler)
     assert len(handler.handled_intents) == 1
     assert handler.handled_intents[0].slots["name"]["value"] == "Living Room Fan"
 
@@ -146,19 +147,28 @@ async def test_process_area_targeting(
 
     assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
     handler = mock_intent_handlers["HassTurnOn"]
-    assert isinstance(handler, MockTurnOnIntentHandler)
     assert len(handler.handled_intents) == 1
     assert handler.handled_intents[0].slots["area"]["value"] == "Kitchen"
     assert handler.handled_intents[0].slots["domain"]["value"] == "light"
 
 
+@pytest.mark.parametrize(
+    ("utterance", "expected_brightness"),
+    [
+        ("Set bedroom light to 50%", 50),
+        ("Set bedroom light to 0%", 0),
+        ("Set bedroom light to 100%", 100),
+    ],
+)
 async def test_process_numeric_brightness_extraction(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
     mock_intent_handlers: dict[str, MockBaseIntentHandler],
+    utterance: str,
+    expected_brightness: int,
 ) -> None:
-    """Test numeric percentage slot extraction for brightness."""
+    """Test numeric percentage slot extraction for brightness including boundaries."""
     hass.states.async_set("light.bedroom", "on", {"friendly_name": "Bedroom Light"})
     mock_client.set_answers(
         {
@@ -174,7 +184,7 @@ async def test_process_numeric_brightness_extraction(
 
     result = await conversation.async_converse(
         hass=hass,
-        text="Set bedroom light to 50%",
+        text=utterance,
         conversation_id=None,
         context=Context(),
         agent_id=config_entry.entry_id,
@@ -182,10 +192,11 @@ async def test_process_numeric_brightness_extraction(
 
     assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
     handler = mock_intent_handlers["HassLightSet"]
-    assert isinstance(handler, MockLightSetIntentHandler)
     assert len(handler.handled_intents) == 1
     assert handler.handled_intents[0].slots["name"]["value"] == "Bedroom Light"
-    assert handler.handled_intents[0].slots["brightness"]["value"] == 50
+    assert (
+        handler.handled_intents[0].slots["brightness"]["value"] == expected_brightness
+    )
 
 
 async def test_process_low_confidence_with_fallback(
@@ -705,7 +716,7 @@ async def test_threshold_configured_as_one(
 
 
 # ==============================================================================
-# 2. Empty or Missing Friendly Names / Entity Attributes
+# Empty or Missing Friendly Names / Entity Attributes
 # ==============================================================================
 
 
@@ -825,7 +836,7 @@ async def test_entity_friendly_name_is_none(
 
 
 # ==============================================================================
-# 3. Fallback Agent Configured vs Not Configured Edge Cases
+# Fallback Agent Configured vs Not Configured Edge Cases
 # ==============================================================================
 
 
@@ -914,7 +925,7 @@ async def test_client_evaluation_error_without_fallback(
 
 
 # ==============================================================================
-# 4. Unmatched Intent Strings & Unparsable / Malformed Responses
+# Unmatched Intent Strings & Unparsable / Malformed Responses
 # ==============================================================================
 
 
@@ -1057,7 +1068,7 @@ async def test_unparseable_response_probabilities_none(
 
 
 # ==============================================================================
-# 5. Compound Command Boundary Probes
+# Compound Command Boundary Probes
 # ==============================================================================
 
 
@@ -1181,7 +1192,7 @@ async def test_conversation_api_errors_no_fallback(
 
 
 # ==============================================================================
-# 3. Speculative Fan-out Questions When No Entities or Areas Exist
+# Speculative Fan-out Questions When No Entities or Areas Exist
 # ==============================================================================
 
 
@@ -1327,13 +1338,12 @@ async def test_execution_when_intent_matches_but_zero_entities_exist(
     # In this case, HassTurnOn is dispatched with empty slots (no name, no entity, no area)
     # The intent handler executes or handles it.
     handler = mock_intent_handlers["HassTurnOn"]
-    assert isinstance(handler, MockTurnOnIntentHandler)
     assert len(handler.handled_intents) == 1
     assert handler.handled_intents[0].slots == {}
 
 
 # ==============================================================================
-# 4. Multi-Intent / Compound Utterance Escalation
+# Multi-Intent / Compound Utterance Escalation
 # ==============================================================================
 
 
@@ -1375,7 +1385,6 @@ async def test_compound_utterance_precedence_over_intent(
 
     # Intent handler must NOT have been called!
     handler = mock_intent_handlers["HassTurnOn"]
-    assert isinstance(handler, MockTurnOnIntentHandler)
     assert len(handler.handled_intents) == 0
 
     # Must escalate to fallback agent
@@ -1428,7 +1437,7 @@ async def test_compound_boundary_threshold(
 
 
 # ==============================================================================
-# 5. Empirical Bug Reproductions (Challenger Findings)
+# Empirical Bug Reproductions (Challenger Findings)
 # ==============================================================================
 
 
@@ -1514,7 +1523,6 @@ async def test_defensive_missing_friendly_name_populates_slot(
     )
 
     handler = mock_intent_handlers["HassTurnOn"]
-    assert isinstance(handler, MockTurnOnIntentHandler)
     assert len(handler.handled_intents) == 1
     intent_obj = handler.handled_intents[0]
     slot_val = intent_obj.slots["name"]["value"]
@@ -1615,7 +1623,7 @@ async def test_conversation_handles_all_client_errors_with_and_without_fallback(
     """Verify conversation pipeline degrades cleanly on all client errors."""
     mock_client.evaluate_error = client_exc
 
-    # 1. Without fallback agent configured
+    # Without fallback agent configured
     result_no_fallback = await conversation.async_converse(
         hass=hass,
         text="Turn on kitchen light",
@@ -1629,7 +1637,7 @@ async def test_conversation_handles_all_client_errors_with_and_without_fallback(
         is intent.IntentResponseErrorCode.NO_INTENT_MATCH
     )
 
-    # 2. With fallback agent configured
+    # With fallback agent configured
     hass.config_entries.async_update_entry(
         config_entry,
         options={
@@ -1656,7 +1664,7 @@ async def test_conversation_handles_all_client_errors_with_and_without_fallback(
 
 
 # ==============================================================================
-# 3. 0 exposed entities and 0 areas
+# Zero exposed entities and zero areas
 # ==============================================================================
 
 
@@ -1672,7 +1680,7 @@ async def test_zero_exposed_entities_and_zero_areas_question_schema(
     assert len(area_reg.areas) == 0
 
     # Ensure no controllable entities exist in HA states
-    from custom_components.typesafe.speculative.strategy.discovery import (
+    from custom_components.typesafe.speculative.retrieval.heuristics import (
         CONTROLLABLE_DOMAINS,
     )
 
@@ -1755,7 +1763,7 @@ async def test_non_controllable_entities_are_excluded_from_criteria(
 
 
 # ==============================================================================
-# 4. Dynamic reload on options update
+# Dynamic reload on options update
 # ==============================================================================
 
 
@@ -1809,7 +1817,7 @@ async def test_dynamic_reload_confidence_threshold_and_fallback(
     )
     await hass.async_block_till_done()
 
-    assert config_entry.runtime_data.strategy.confidence_threshold == 0.85
+    assert config_entry.runtime_data.flow.resolver.confidence_threshold == 0.85
 
     res2 = await conversation.async_converse(
         hass=hass,
@@ -1848,7 +1856,7 @@ async def test_dynamic_reload_confidence_threshold_and_fallback(
 
 
 # ==============================================================================
-# 5. Additional Boundary & Edge Case Stress Probes
+# Additional Boundary & Edge Case Stress Probes
 # ==============================================================================
 
 
@@ -1857,7 +1865,7 @@ async def test_empty_utterance_handling(
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """Verify empty or whitespace utterances do not crash strategy or conversation."""
+    """Verify empty or whitespace utterances do not crash flow or conversation."""
     mock_client.set_answers(
         {
             "intent": {"choice": "unmatched", "confidence": 0.99},
@@ -1928,3 +1936,380 @@ async def test_empty_answers_dict_escalates(
     )
     assert result.response.response_type is intent.IntentResponseType.ERROR
     assert result.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+# ==============================================================================
+# Additional Boundary & Protocol Coverage
+# ==============================================================================
+
+
+async def test_conversation_agent_properties(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Test conversation agent entity properties."""
+    manager = conversation.get_agent_manager(hass)
+    agent = manager.async_get_agent(config_entry.entry_id)
+    assert agent is not None
+    assert agent.supported_languages == MATCH_ALL
+    assert agent.unique_id == config_entry.entry_id
+    assert agent.name == config_entry.title
+
+
+async def test_conversation_context_and_language_forwarding(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test conversation input context, language, device_id, and conversation_id are preserved."""
+    ctx = Context()
+    hass.states.async_set("light.kitchen", "off", {"friendly_name": "Küche"})
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {"choice": "light.kitchen", "confidence": 0.95},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    res = await conversation.async_converse(
+        hass=hass,
+        text="Schalte die Küche ein",
+        conversation_id="custom-uuid-9999",
+        context=ctx,
+        language="de",
+        device_id="satellite_speaker_living_room",
+        agent_id=config_entry.entry_id,
+    )
+    assert res.conversation_id == "custom-uuid-9999"
+    assert res.response.language == "de"
+    assert res.response.response_type is intent.IntentResponseType.ACTION_DONE
+    handled = mock_intent_handlers["HassTurnOn"].handled_intents[-1]
+    assert handled.context is ctx
+    assert handled.language == "de"
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected_temp"),
+    [
+        ("Set temperature to 72 degrees", 72.0),
+        ("Set HVAC to 21.5°", 21.5),
+    ],
+)
+async def test_process_numeric_temperature_extraction(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    climate_handler: MockClimateIntentHandler,
+    utterance: str,
+    expected_temp: float,
+) -> None:
+    """Test numeric temperature slot extraction for integer and decimal values."""
+    hass.states.async_set(
+        "climate.living_room", "heat", {"friendly_name": "Thermostat"}
+    )
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassClimateSetTemperature",
+                "confidence": 0.95,
+                "probabilities": {"HassClimateSetTemperature": 0.95},
+            },
+            "target_entity": {"choice": "climate.living_room", "confidence": 0.95},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    await conversation.async_converse(
+        hass=hass,
+        text=utterance,
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert len(climate_handler.handled_intents) == 1
+    assert (
+        climate_handler.handled_intents[0].slots["temperature"]["value"]
+        == expected_temp
+    )
+
+
+async def test_area_targeting_without_domain_keyword(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test area targeting without recognized domain keyword in utterance omits domain slot."""
+    area_reg = ar.async_get(hass)
+    area = area_reg.async_create("Attic")
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.90,
+                "probabilities": {"HassTurnOn": 0.90},
+            },
+            "target_type": {"choice": "area", "confidence": 0.90},
+            "target_area": {"choice": area.id, "confidence": 0.90},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    await conversation.async_converse(
+        hass=hass,
+        text="Activate the attic",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    handler = mock_intent_handlers["HassTurnOn"]
+    slots = handler.handled_intents[0].slots
+    assert slots["area"]["value"] == "Attic"
+    assert "domain" not in slots
+
+
+async def test_target_entity_none_choice_ignored(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test target entity 'none' choice does not populate entity_id slot."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.90,
+                "probabilities": {"HassTurnOn": 0.90},
+            },
+            "target_entity": {"choice": "none", "confidence": 0.90},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on everything",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    handler = mock_intent_handlers["HassTurnOn"]
+    assert "entity_id" not in handler.handled_intents[0].slots
+
+
+async def test_unregistered_intent_name_fails(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test when model returns an unregistered intent name, returns FAILED_TO_HANDLE."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "UnregisteredIntentXYZ",
+                "confidence": 0.95,
+                "probabilities": {"UnregisteredIntentXYZ": 0.95},
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    res = await conversation.async_converse(
+        hass=hass,
+        text="Do unknown action",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert res.response.response_type is intent.IntentResponseType.ERROR
+    assert res.response.error_code is intent.IntentResponseErrorCode.FAILED_TO_HANDLE
+
+
+async def test_special_characters_in_entity_friendly_name(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+) -> None:
+    """Test quotes and accented characters in entity friendly name forwarded into slot."""
+    hass.states.async_set(
+        "light.art", "off", {"friendly_name": 'René\'s "Special" Art Light'}
+    )
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {"choice": "light.art", "confidence": 0.95},
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    await conversation.async_converse(
+        hass=hass,
+        text="Turn on art light",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    handler = mock_intent_handlers["HassTurnOn"]
+    assert (
+        handler.handled_intents[0].slots["name"]["value"]
+        == 'René\'s "Special" Art Light'
+    )
+
+
+async def test_fallback_agent_receives_identical_conversation_id_and_context(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+) -> None:
+    """Test fallback agent receives the identical conversation_id and context."""
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={CONF_FALLBACK_AGENT: "mock_fallback_agent"},
+    )
+    await hass.async_block_till_done()
+
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "unmatched",
+                "confidence": 0.99,
+                "probabilities": {"unmatched": 0.99},
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    ctx = Context()
+    await conversation.async_converse(
+        hass=hass,
+        text="Complex query",
+        conversation_id="conv-uuid-1234",
+        context=ctx,
+        agent_id=config_entry.entry_id,
+    )
+    assert len(mock_fallback_agent.calls) == 1
+    call = mock_fallback_agent.calls[0]
+    assert call.conversation_id == "conv-uuid-1234"
+    assert call.context is ctx
+
+
+async def test_fallback_agent_raises_exception_falls_through(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test exception raised by fallback agent falls through to NO_INTENT_MATCH."""
+
+    class FailingAgent(conversation.AbstractConversationAgent):
+        @property
+        def supported_languages(self) -> list[str]:
+            return ["en"]
+
+        async def async_process(
+            self, user_input: conversation.ConversationInput
+        ) -> conversation.ConversationResult:
+            raise RuntimeError("Fallback crashed")
+
+    manager = conversation.get_agent_manager(hass)
+    manager.async_set_agent("failing_fallback", FailingAgent())
+
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={CONF_FALLBACK_AGENT: "failing_fallback"},
+    )
+    await hass.async_block_till_done()
+
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "unmatched",
+                "confidence": 0.99,
+                "probabilities": {"unmatched": 0.99},
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    res = await conversation.async_converse(
+        hass=hass,
+        text="Trigger fallback",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+    assert res.response.response_type is intent.IntentResponseType.ERROR
+    assert res.response.error_code is intent.IntentResponseErrorCode.NO_INTENT_MATCH
+
+
+async def test_fallback_agent_in_data_ignored_without_options(
+    hass: HomeAssistant,
+    mock_client: MockTypeSafeClient,
+    mock_fallback_agent: MockFallbackAgent,
+) -> None:
+    """Test fallback agent in entry.data is ignored; options is strictly required."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=DEFAULT_NAME,
+        data={
+            CONF_API_KEY: "test_key",
+            CONF_FALLBACK_AGENT: "mock_fallback_agent",
+        },
+        options={},
+        entry_id="data_fallback_entry",
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "unmatched",
+                "confidence": 0.99,
+                "probabilities": {"unmatched": 0.99},
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    res = await conversation.async_converse(
+        hass=hass,
+        text="Check fallback from data",
+        conversation_id=None,
+        context=Context(),
+        agent_id=entry.entry_id,
+    )
+    assert len(mock_fallback_agent.calls) == 0
+    assert res.response.response_type is intent.IntentResponseType.ERROR
+
+
+async def test_error_response_preserves_language_and_conversation_id(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test error response preserves user_input language and conversation_id."""
+    mock_client.set_answers(
+        {
+            "intent": {
+                "choice": "unmatched",
+                "confidence": 0.99,
+                "probabilities": {"unmatched": 0.99},
+            },
+            "is_compound": {"noul": 0.0},
+        }
+    )
+    res = await conversation.async_converse(
+        hass=hass,
+        text="Que hora es?",
+        conversation_id="conv-es-001",
+        context=Context(),
+        language="es",
+        agent_id=config_entry.entry_id,
+    )
+    assert res.conversation_id == "conv-es-001"
+    assert res.response.language == "es"
