@@ -39,6 +39,9 @@ MANIFEST_PATH=$MANIFEST_FILES
 
 # Using python to update the json file to avoid issues with sed
 python -c "import json; data = json.load(open('$MANIFEST_PATH')); data['version'] = '$VERSION'; f = open('$MANIFEST_PATH', 'w'); json.dump(data, f, indent=2); f.write('\n'); f.close()"
+if [ -f "./script/lint" ]; then
+    ./script/lint >/dev/null 2>&1 || ./script/lint >/dev/null 2>&1 || true
+fi
 
 git add "$MANIFEST_PATH"
 git commit -m "chore(release): $VERSION"
