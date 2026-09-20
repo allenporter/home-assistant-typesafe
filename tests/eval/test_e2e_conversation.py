@@ -52,13 +52,17 @@ from custom_components.typesafe.const import (
     DOMAIN,
 )
 from custom_components.typesafe.models import TypeSafeData
-from custom_components.typesafe.strategy import (
+from custom_components.typesafe.speculative.models import (
     ChoiceAnswer,
     ChoiceQuestion,
-    DecisionStrategy,
     NoulAnswer,
     NoulQuestion,
+)
+from custom_components.typesafe.speculative.strategy import (
+    SpeculativeFanOutStrategy as DecisionStrategy,
     StrategyContext,
+)
+from custom_components.typesafe.speculative.strategy.discovery import (
     can_fulfill_intent,
 )
 from tests.conftest import (

@@ -32,7 +32,7 @@ from custom_components.typesafe.const import (
     DEFAULT_NAME,
     DOMAIN,
 )
-from custom_components.typesafe.strategy import Question
+from custom_components.typesafe.speculative.models import Question
 
 pytest_plugins = [
     "tests.eval.fixtures_standard",

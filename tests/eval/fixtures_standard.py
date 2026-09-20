@@ -11,7 +11,7 @@ from homeassistant.components import conversation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
-from custom_components.typesafe.strategy import StrategyContext
+from custom_components.typesafe.speculative.strategy import StrategyContext
 from tests.common.fixture_loader import (
     DeviceActionCase,
     load_device_action_cases,

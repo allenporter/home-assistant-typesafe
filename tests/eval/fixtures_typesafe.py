@@ -16,19 +16,20 @@ import pytest
 from custom_components.typesafe.client import TypeSafeClient
 from custom_components.typesafe.const import DEFAULT_MODEL
 from custom_components.typesafe.engine import TypeSafeDecisionEngine
-from custom_components.typesafe.strategy import (
+from custom_components.typesafe.speculative.strategy import (
     DecisionStrategy,
     DomainBoostedFanOutStrategy,
     IntentPrunedFanOutStrategy,
+    SpeculativeFanOutStrategy,
     StandardFanOutStrategy,
 )
 from tests.conftest import MockTypeSafeClient
 
 
 @pytest.fixture(name="typesafe_strategy")
-def typesafe_strategy_fixture() -> DecisionStrategy:
+def typesafe_strategy_fixture() -> SpeculativeFanOutStrategy:
     """Fixture providing a default DecisionStrategy for TypeSafe."""
-    return DecisionStrategy()
+    return SpeculativeFanOutStrategy()
 
 
 # Alias for convenience in eval tests

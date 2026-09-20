@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import CONF_FALLBACK_AGENT, DOMAIN
 from .models import TypeSafeConfigEntry
 from .speculative.engine import DecisionEngine
-from .strategy import DecisionStrategy, StrategyContext
+from .speculative.strategy import DecisionStrategy, StrategyContext
 
 _LOGGER = logging.getLogger(__name__)
 

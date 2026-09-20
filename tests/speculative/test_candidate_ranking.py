@@ -7,10 +7,13 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.typesafe.speculative.inmemory.engine import FakeDecisionEngine
 from custom_components.typesafe.speculative.models import ChoiceAnswer, NoulAnswer
-from custom_components.typesafe.strategy import (
+from custom_components.typesafe.speculative.strategy.base import (
     DecisionStrategy,
+)
+from custom_components.typesafe.speculative.strategy.speculative import (
     DomainBoostedFanOutStrategy,
     IntentPrunedFanOutStrategy,
+    SpeculativeFanOutStrategy,
     StandardFanOutStrategy,
 )
 from tests.common.fixture_loader import (
@@ -26,9 +29,9 @@ def farmhouse_context_fixture(hass: HomeAssistant):
 
 
 @pytest.fixture(name="strategy")
-def strategy_fixture() -> DecisionStrategy:
+def strategy_fixture() -> SpeculativeFanOutStrategy:
     """Fixture providing a default DecisionStrategy."""
-    return DecisionStrategy()
+    return SpeculativeFanOutStrategy()
 
 
 @pytest.fixture(name="engine")
@@ -234,13 +237,13 @@ async def test_candidate_ranking_filters_by_intent_domain(
     engine: FakeDecisionEngine,
 ) -> None:
     """Verify that IntentPrunedFanOutStrategy prunes non-media entities for 'pause' while StandardFanOutStrategy retains them."""
-    # 1. Unpruned strategy includes kitchen light due to area matching
+    # Unpruned strategy includes kitchen light due to area matching
     standard_strategy = StandardFanOutStrategy()
     await standard_strategy.async_decide(engine, "Pause the kitchen", farmhouse_context)
     standard_candidates = engine.calls[-1]["questions"]["target_entity"].criteria
     assert "light.kitchen_light" in standard_candidates
 
-    # 2. Pruned strategy restricts candidates to media_player domain, pruning kitchen light
+    # Pruned strategy restricts candidates to media_player domain, pruning kitchen light
     pruned_strategy = IntentPrunedFanOutStrategy()
     await pruned_strategy.async_decide(engine, "Pause the kitchen", farmhouse_context)
     pruned_candidates = engine.calls[-1]["questions"]["target_entity"].criteria

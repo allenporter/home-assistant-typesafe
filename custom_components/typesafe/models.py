@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 
 from .client import TypeSafeClient
 from .speculative.engine import DecisionEngine
-from .strategy import DecisionStrategy
+from .speculative.strategy import DecisionStrategy
 
 type TypeSafeConfigEntry = ConfigEntry[TypeSafeData]
 

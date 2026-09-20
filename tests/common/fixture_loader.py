@@ -16,7 +16,7 @@ from homeassistant.helpers import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.typesafe.strategy import StrategyContext
+from custom_components.typesafe.speculative.strategy import StrategyContext
 
 DEFAULT_FIXTURES_PATH = (
     Path(__file__).parents[1] / "testdata" / "family-farmhouse-us" / "_fixtures.yaml"

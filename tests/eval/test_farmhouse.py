@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from custom_components.typesafe.engine import TypeSafeDecisionEngine
-from custom_components.typesafe.strategy import DecisionStrategy, StrategyContext
+from custom_components.typesafe.speculative.strategy import (
+    SpeculativeFanOutStrategy as DecisionStrategy,
+    StrategyContext,
+)
 
 pytestmark = pytest.mark.slow
 

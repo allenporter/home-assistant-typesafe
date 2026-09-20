@@ -18,7 +18,7 @@ from .const import (
 )
 from .engine import TypeSafeDecisionEngine
 from .models import TypeSafeConfigEntry, TypeSafeData
-from .strategy import DecisionStrategy
+from .speculative.strategy import SpeculativeFanOutStrategy as DecisionStrategy
 
 _LOGGER = logging.getLogger(__name__)
 

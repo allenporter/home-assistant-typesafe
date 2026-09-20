@@ -1672,7 +1672,9 @@ async def test_zero_exposed_entities_and_zero_areas_question_schema(
     assert len(area_reg.areas) == 0
 
     # Ensure no controllable entities exist in HA states
-    from custom_components.typesafe.strategy import CONTROLLABLE_DOMAINS
+    from custom_components.typesafe.speculative.strategy.discovery import (
+        CONTROLLABLE_DOMAINS,
+    )
 
     controllable_count = sum(
         1 for s in hass.states.async_all() if s.domain in CONTROLLABLE_DOMAINS
