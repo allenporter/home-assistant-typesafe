@@ -1,4 +1,4 @@
-"""Tests for the jev component."""
+"""Tests for the typesafe component."""
 
 import pytest
 

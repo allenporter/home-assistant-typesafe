@@ -1,4 +1,4 @@
-"""Config flow for jev integration."""
+"""Config flow for typesafe integration."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ OPTIONS_FLOW = {
 }
 
 
-class JevConfigFlowHandler(SchemaConfigFlowHandler, domain=DOMAIN):
+class TypeSafeConfigFlowHandler(SchemaConfigFlowHandler, domain=DOMAIN):
     """Handle a config flow for Switch as X."""
 
     config_flow = CONFIG_FLOW

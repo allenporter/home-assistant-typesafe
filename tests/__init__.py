@@ -1,1 +1,1 @@
-"""Tests for jev."""
+"""Tests for typesafe."""

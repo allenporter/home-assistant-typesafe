@@ -1,4 +1,4 @@
-"""jev custom component."""
+"""typesafe custom component."""
 
 from __future__ import annotations
 

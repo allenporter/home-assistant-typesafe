@@ -14,7 +14,7 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
 
-from custom_components.jev.const import (
+from custom_components.typesafe.const import (
     DOMAIN,
 )
 

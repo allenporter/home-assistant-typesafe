@@ -1,6 +1,6 @@
-# home-assistant-jev
+# home-assistant-typesafe
 
-Home Assistant conversation integration powered by the Jev / TypeSafe AI API for fast, structured intent routing and device control
+Home Assistant conversation integration powered by TypeSafe AI for fast, structured intent routing and device control
 
 ## Environment Pre-requisites
 
