@@ -1,0 +1,36 @@
+---
+home: family-farmhouse-us
+location: Rural area in Iowa
+type: Farmhouse
+device:
+  name: Barn Garage Door
+  device_type: garage-door
+  device_info:
+    model: B970 Smart Garage Door Opener
+    manufacturer: Chamberlain
+    sw_version: 2.1
+  area: Barn
+capabilities:
+  - Open
+  - Close
+  - Stop
+actions:
+  actions:
+    - action: Open
+      sentences:
+        - Open the garage door
+        - Please open the barn garage door
+        - Open up the barn
+        - Open the barn door
+    - action: Close
+      sentences:
+        - Close the garage door
+        - Please close the barn garage door
+        - Shut the barn garage door
+        - Close the barn door
+        - Shut the barn door
+    - action: Stop
+      sentences:
+        - Stop the garage door
+        - Stop opening the garage door
+        - Stop moving the garage door

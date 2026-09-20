@@ -33,9 +33,9 @@ def engine_fixture() -> FakeDecisionEngine:
 
 
 async def test_farmhouse_context_loaded(farmhouse_context) -> None:
-    """Verify that the farmhouse context has all 12 areas and 28 entity states loaded."""
+    """Verify that the farmhouse context has all 12 areas and 29 entity states loaded."""
     assert len(farmhouse_context.area_registry.areas) == 12
-    assert len(farmhouse_context.states) == 28
+    assert len(farmhouse_context.states) == 29
     assert farmhouse_context.home_name == "Family Farmhouse"
 
 
@@ -139,7 +139,7 @@ async def test_farmhouse_decision_routing(
 async def test_farmhouse_labeled_cases_loading() -> None:
     """Test that all supported labeled action cases from family-farmhouse-us are parsed."""
     cases = load_device_action_cases()
-    assert len(cases) == 161
+    assert len(cases) == 173
 
     sentences = {c.sentence: c for c in cases}
     assert "Please turn on the Kitchen Light" in sentences
@@ -149,6 +149,9 @@ async def test_farmhouse_labeled_cases_loading() -> None:
     assert (
         sentences["Set the Kitchen Light to 50% brightness"].action == "Set brightness"
     )
+
+    assert "Open the garage door" in sentences
+    assert sentences["Open the garage door"].expected_intent == "HassOpenCover"
     assert (
         sentences["Set the Kitchen Light to 50% brightness"].expected_intent
         == "HassLightSet"

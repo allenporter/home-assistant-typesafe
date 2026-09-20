@@ -68,30 +68,7 @@ from tests.conftest import (
 )
 
 
-class MockClimateIntentHandler(MockBaseIntentHandler):
-    """Mock handler for HassClimateSetTemperature."""
-
-    intent_type = "HassClimateSetTemperature"
-    description = "Set target temperature for thermostat or climate device"
-
-    def __init__(self) -> None:
-        """Initialize handler."""
-        self.handled_intents: list[intent.Intent] = []
-
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        """Handle climate intent."""
-        self.handled_intents.append(intent_obj)
-        res = intent.IntentResponse(language=intent_obj.language)
-        res.async_set_speech("Target temperature set")
-        return res
-
-
-@pytest.fixture(name="climate_handler")
-def climate_handler_fixture(hass: HomeAssistant) -> MockClimateIntentHandler:
-    """Fixture to register and return a MockClimateIntentHandler."""
-    handler = MockClimateIntentHandler()
-    intent.async_register(hass, handler)
-    return handler
+from tests.eval.fixtures_standard import MockClimateIntentHandler
 
 
 MANIFEST_PATH = (

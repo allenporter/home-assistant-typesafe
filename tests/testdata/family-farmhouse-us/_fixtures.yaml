@@ -142,6 +142,13 @@ devices:
       sw_version: 1.2.3
     name: Barn Light
   - area: barn
+    id: barn_garage_door
+    info:
+      manufacturer: Chamberlain
+      model: B970 Smart Garage Door Opener
+      sw_version: 2.1
+    name: Barn Garage Door
+  - area: barn
     id: motion_sensor
     info:
       manufacturer: Aqara
@@ -411,6 +418,17 @@ entities:
     id: sensor.motion_sensor_battery
     name: Motion Sensor Battery
     state: "90"
+  - area: barn
+    attributes:
+      device_class: cover.CoverDeviceClass.GARAGE
+      supported_features:
+        - cover.CoverEntityFeature.OPEN
+        - cover.CoverEntityFeature.CLOSE
+        - cover.CoverEntityFeature.STOP
+    device: barn_garage_door
+    id: cover.barn_garage_door
+    name: Barn Garage Door
+    state: closed
   - area: chicken_coop
     attributes:
       color_mode: onoff

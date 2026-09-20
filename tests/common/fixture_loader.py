@@ -33,6 +33,9 @@ ACTION_TO_INTENT: dict[str, str] = {
     "Next track": "HassMediaNextTrack",
     "Previous track": "HassMediaPreviousTrack",
     "Set volume": "HassSetVolume",
+    "Open": "HassOpenCover",
+    "Close": "HassCloseCover",
+    "Stop": "HassStopMoving",
 }
 
 
@@ -114,7 +117,7 @@ STANDARD_INTENT_CONFIGS: list[
     ),
     (
         "HassMediaPause",
-        "Pauses media playback or music.",
+        "Pauses media playback, music, or speaker.",
         {"media_player"},
         {"name", "area", "floor"},
         None,
@@ -145,6 +148,27 @@ STANDARD_INTENT_CONFIGS: list[
         "Sets the volume percentage or level of a speaker or media player, louder, softer, quieter.",
         {"media_player"},
         {"name", "area", "floor", "volume_level"},
+        None,
+    ),
+    (
+        "HassOpenCover",
+        "Opens a cover, garage door, blinds, or shades",
+        {"cover"},
+        {"name", "area", "floor", "domain"},
+        None,
+    ),
+    (
+        "HassCloseCover",
+        "Closes a cover, garage door, blinds, or shades",
+        {"cover"},
+        {"name", "area", "floor", "domain"},
+        None,
+    ),
+    (
+        "HassStopMoving",
+        "Stops movement of a cover, garage door, or shades",
+        {"cover"},
+        {"name", "area", "floor", "domain"},
         None,
     ),
 ]

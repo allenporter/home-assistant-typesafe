@@ -49,6 +49,7 @@ CONTROLLABLE_DOMAINS: frozenset[str] = frozenset(
         "fan",
         "lock",
         "vacuum",
+        "valve",
         "scene",
         "script",
         "automation",
