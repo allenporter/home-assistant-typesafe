@@ -1,72 +1,265 @@
-"""Fixtures for the custom component."""
+"""Fixtures for TypeSafe integration tests."""
 
-from collections.abc import AsyncGenerator, Generator
-import logging
+from __future__ import annotations
+
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from homeassistant.const import Platform
+from homeassistant.components import conversation
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import intent
 from homeassistant.setup import async_setup_component
 
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.typesafe.const import (
+    CONF_API_KEY,
+    CONF_CONFIDENCE_THRESHOLD,
+    CONF_MODEL,
+    DEFAULT_NAME,
     DOMAIN,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(
     enable_custom_integrations: None,
 ) -> Generator[None, None, None]:
-    """Enable custom integration."""
-    _ = enable_custom_integrations  # unused
+    """Enable custom integrations."""
+    _ = enable_custom_integrations
     yield
 
 
-@pytest.fixture(name="platforms")
-def mock_platforms() -> list[Platform]:
-    """Fixture for platforms loaded by the integration."""
-    return []
+@pytest.fixture(autouse=True)
+async def mock_dependencies(hass: HomeAssistant) -> None:
+    """Set up homeassistant, intent, and conversation core components."""
+    assert await async_setup_component(hass, "homeassistant", {})
+    assert await async_setup_component(hass, "intent", {})
+    assert await async_setup_component(hass, "conversation", {})
+    await hass.async_block_till_done()
 
 
-@pytest.fixture(name="setup_integration")
-async def mock_setup_integration(
+class MockTypeSafeClient:
+    """Mock TypeSafeClient for hermetic unit testing."""
+
+    def __init__(
+        self,
+        validate_result: bool = True,
+        validate_error: Exception | None = None,
+        answers: dict[str, Any] | None = None,
+        evaluate_error: Exception | None = None,
+    ) -> None:
+        """Initialize mock client."""
+        self.validate_result = validate_result
+        self.validate_error = validate_error
+        self.answers: dict[str, Any] | None = answers or {}
+        self.evaluate_error = evaluate_error
+        self.calls: list[dict[str, Any]] = []
+
+    def set_answers(self, answers: dict[str, Any] | None) -> None:
+        """Set answers returned by async_evaluate."""
+        self.answers = answers
+
+    async def async_validate_key(self) -> bool:
+        """Validate key mock."""
+        if self.validate_error:
+            raise self.validate_error
+        return self.validate_result
+
+    async def async_evaluate(
+        self,
+        state: str | dict[str, Any],
+        questions: dict[str, Any],
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate mock."""
+        self.calls.append(
+            {
+                "state": state,
+                "questions": questions,
+                "model": model,
+            }
+        )
+        if self.evaluate_error:
+            raise self.evaluate_error
+        return {
+            "model": model or "jev-latest",
+            "answers": self.answers,
+        }
+
+
+@pytest.fixture(name="mock_client")
+def mock_client_fixture() -> MockTypeSafeClient:
+    """Provide a default MockTypeSafeClient."""
+    return MockTypeSafeClient(
+        validate_result=True,
+        answers={
+            "intent": {
+                "choice": "HassTurnOn",
+                "confidence": 0.95,
+                "probabilities": {"HassTurnOn": 0.95},
+            },
+            "target_entity": {
+                "choice": "light.kitchen_lights",
+                "confidence": 0.95,
+            },
+            "is_compound": {"noul": 0.01},
+        },
+    )
+
+
+@pytest.fixture(name="mock_typesafe_client", autouse=True)
+def mock_typesafe_client_fixture(
+    mock_client: MockTypeSafeClient,
+) -> Generator[MockTypeSafeClient, None, None]:
+    """Patch TypeSafeClient with mock_client in custom component modules."""
+    with (
+        patch(
+            "custom_components.typesafe.TypeSafeClient",
+            return_value=mock_client,
+        ),
+        patch(
+            "custom_components.typesafe.config_flow.TypeSafeClient",
+            return_value=mock_client,
+        ),
+    ):
+        yield mock_client
+
+
+class MockFallbackAgent(conversation.AbstractConversationAgent):
+    """Mock fallback conversation agent for escalation tests."""
+
+    def __init__(self) -> None:
+        """Initialize mock agent."""
+        self.calls: list[conversation.ConversationInput] = []
+
+    @property
+    def supported_languages(self) -> list[str]:
+        """Return supported languages."""
+        return ["en"]
+
+    async def async_process(
+        self, user_input: conversation.ConversationInput
+    ) -> conversation.ConversationResult:
+        """Record input and return dummy conversation response."""
+        self.calls.append(user_input)
+        res = intent.IntentResponse(language=user_input.language)
+        res.async_set_speech(f"Fallback response: {user_input.text}")
+        return conversation.ConversationResult(
+            response=res, conversation_id=user_input.conversation_id
+        )
+
+
+@pytest.fixture(name="mock_fallback_agent")
+def mock_fallback_agent_fixture(hass: HomeAssistant) -> MockFallbackAgent:
+    """Register and return a mock fallback conversation agent."""
+    agent = MockFallbackAgent()
+    manager = conversation.get_agent_manager(hass)
+    manager.async_set_agent("mock_fallback_agent", agent)
+    return agent
+
+
+class MockBaseIntentHandler(intent.IntentHandler):
+    """Base mock intent handler with handled_intents list."""
+
+    handled_intents: list[intent.Intent]
+
+
+class MockTurnOnIntentHandler(MockBaseIntentHandler):
+    """Mock handler for HassTurnOn."""
+
+    intent_type = "HassTurnOn"
+    description = "Turn on a device"
+
+    def __init__(self) -> None:
+        """Initialize handler."""
+        self.handled_intents = []
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        """Handle intent."""
+        self.handled_intents.append(intent_obj)
+        res = intent.IntentResponse(language=intent_obj.language)
+        res.async_set_speech("Turned on device")
+        return res
+
+
+class MockTurnOffIntentHandler(MockBaseIntentHandler):
+    """Mock handler for HassTurnOff."""
+
+    intent_type = "HassTurnOff"
+    description = "Turn off a device"
+
+    def __init__(self) -> None:
+        """Initialize handler."""
+        self.handled_intents = []
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        """Handle intent."""
+        self.handled_intents.append(intent_obj)
+        res = intent.IntentResponse(language=intent_obj.language)
+        res.async_set_speech("Turned off device")
+        return res
+
+
+class MockLightSetIntentHandler(MockBaseIntentHandler):
+    """Mock handler for HassLightSet."""
+
+    intent_type = "HassLightSet"
+    description = "Adjust brightness or color of a light"
+
+    def __init__(self) -> None:
+        """Initialize handler."""
+        self.handled_intents = []
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        """Handle intent."""
+        self.handled_intents.append(intent_obj)
+        res = intent.IntentResponse(language=intent_obj.language)
+        res.async_set_speech("Adjusted light")
+        return res
+
+
+@pytest.fixture(name="mock_intent_handlers")
+def mock_intent_handlers_fixture(
     hass: HomeAssistant,
-    config_entry: MockConfigEntry,
-    platforms: list[Platform],
-) -> AsyncGenerator[None, None]:
-    """Set up the integration."""
+) -> dict[str, MockBaseIntentHandler]:
+    """Register dummy intent handlers for testing."""
+    turn_on = MockTurnOnIntentHandler()
+    turn_off = MockTurnOffIntentHandler()
+    light_set = MockLightSetIntentHandler()
 
-    with patch(f"custom_components.{DOMAIN}.PLATFORMS", platforms):
-        assert await async_setup_component(hass, DOMAIN, {})
-        await hass.async_block_till_done()
-        yield
+    intent.async_register(hass, turn_on)
+    intent.async_register(hass, turn_off)
+    intent.async_register(hass, light_set)
 
-
-@pytest.fixture(name="zwave_device_id")
-def mock_zwave_device_id() -> str:
-    """Fixture for a Z-Wave device ID."""
-    return "some-device-id"
+    return {
+        "HassTurnOn": turn_on,
+        "HassTurnOff": turn_off,
+        "HassLightSet": light_set,
+    }
 
 
 @pytest.fixture(name="config_entry")
 async def mock_config_entry(
-    hass: HomeAssistant, zwave_device_id: str
+    hass: HomeAssistant,
 ) -> MockConfigEntry:
-    """Fixture to create a configuration entry."""
-    config_entry = MockConfigEntry(
-        data={},
+    """Fixture to create and set up a TypeSafe configuration entry."""
+    entry = MockConfigEntry(
         domain=DOMAIN,
-        options={},
+        title=DEFAULT_NAME,
+        data={
+            CONF_API_KEY: "test-api-key",
+            CONF_MODEL: "jev-latest",
+        },
+        options={
+            CONF_CONFIDENCE_THRESHOLD: 0.7,
+        },
+        entry_id="typesafe_test_entry",
     )
-    config_entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    return config_entry
+    return entry

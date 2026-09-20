@@ -3,6 +3,7 @@
   "name": "TypeSafe",
   "codeowners": ["@allenporter"],
   "config_flow": true,
+  "dependencies": ["conversation", "intent"],
   "documentation": "https://github.com/allenporter/home-assistant-typesafe",
   "integration_type": "service",
   "iot_class": "calculated",

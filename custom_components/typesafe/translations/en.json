@@ -1,3 +1,31 @@
 {
-  "title": "TypeSafe"
+  "config": {
+    "step": {
+      "user": {
+        "title": "TypeSafe",
+        "description": "Configure TypeSafe System One integration.",
+        "data": {
+          "api_key": "API Key",
+          "model": "Model"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to TypeSafe API",
+      "invalid_auth": "Invalid API key",
+      "unknown": "Unexpected error"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "TypeSafe Options",
+        "description": "Configure decision thresholds and fallback agent.",
+        "data": {
+          "confidence_threshold": "Confidence Threshold",
+          "fallback_agent": "Fallback Conversation Agent"
+        }
+      }
+    }
+  }
 }
