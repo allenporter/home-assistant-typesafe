@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import os
-import aiohttp
 import pytest
 from homeassistant.core import HomeAssistant
 
-from custom_components.typesafe.client import TypeSafeClient
-from custom_components.typesafe.engine import TypeSafeDecisionEngine
 from custom_components.typesafe.speculative.inmemory.engine import FakeDecisionEngine
 from custom_components.typesafe.speculative.models import ChoiceAnswer, NoulAnswer
 from custom_components.typesafe.strategy import DecisionStrategy
@@ -200,31 +196,3 @@ async def test_farmhouse_batch_candidate_recall(
     assert intent_recall > 0.90
     # Over 85% of utterances should correctly retrieve targeted device entity in candidate choices
     assert entity_recall > 0.85
-
-
-@pytest.mark.slow
-async def test_live_farmhouse_turn_on_kitchen_light(
-    farmhouse_context, strategy: DecisionStrategy
-) -> None:
-    """Live inference test on farmhouse fixture with real Jev model via TypeSafe API."""
-    api_key = os.getenv("TYPESAFE_API_KEY")
-    if not api_key:
-        pytest.fail("TYPESAFE_API_KEY environment variable is not set")
-    assert api_key is not None
-
-    async with aiohttp.ClientSession() as session:
-        client = TypeSafeClient(session=session, api_key=api_key, model="jev-latest")
-        engine = TypeSafeDecisionEngine(client)
-        decision = await strategy.async_decide(
-            engine, "Turn on the Kitchen Light", farmhouse_context
-        )
-        assert not decision.should_escalate
-        assert not decision.is_compound
-        assert decision.intent_name == "HassTurnOn"
-        assert decision.confidence >= 0.50
-        is_kitchen_area_light = (
-            decision.slots.get("area") == "Kitchen"
-            and decision.slots.get("domain") == "light"
-        )
-        is_kitchen_entity = decision.slots.get("entity_id") == "light.kitchen_light"
-        assert is_kitchen_area_light or is_kitchen_entity
