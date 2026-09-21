@@ -8,7 +8,6 @@ from ..context import DecisionContext
 from ..request.models import ParsedRequest
 from .base import CandidateRetriever
 from .heuristics import (
-    CANONICAL_INTENT_DESCRIPTIONS,
     CONTROLLABLE_DOMAINS,
     can_fulfill_intent,
 )
@@ -38,7 +37,6 @@ class ExhaustiveCandidateRetriever(CandidateRetriever):
         context: DecisionContext,
     ) -> RetrievedCandidates:
         """Retrieve all entities, areas, and fulfillable intents."""
-        # All fulfillable intents
         intents: list[IntentCandidate] = []
         registered_handlers: list[intent.IntentHandler] = []
         if context.hass:
@@ -47,18 +45,14 @@ class ExhaustiveCandidateRetriever(CandidateRetriever):
             except (KeyError, AttributeError):
                 registered_handlers = []
 
-        if registered_handlers:
-            for handler in registered_handlers:
-                itype = getattr(handler, "intent_type", None)
-                if itype and can_fulfill_intent(handler):
-                    desc = CANONICAL_INTENT_DESCRIPTIONS.get(
-                        itype, getattr(handler, "description", None)
-                    )
-                    intents.append(
-                        IntentCandidate(intent_type=itype, score=1.0, description=desc)
-                    )
-        else:
-            for itype, desc in CANONICAL_INTENT_DESCRIPTIONS.items():
+        for handler in registered_handlers:
+            itype = getattr(handler, "intent_type", None)
+            if itype and can_fulfill_intent(handler):
+                desc = (
+                    getattr(handler, "description", None)
+                    or getattr(handler, "__doc__", None)
+                    or f"Execute Home Assistant {itype} intent"
+                )
                 intents.append(
                     IntentCandidate(intent_type=itype, score=1.0, description=desc)
                 )

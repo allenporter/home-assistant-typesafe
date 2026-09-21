@@ -222,8 +222,28 @@ class TargetBindingDecisionResolver(DecisionResolver):
                 target_confidence = min(target_type_conf, target_entity_conf)
                 resolved_entity = target_entity_choice
                 slots["entity_id"] = target_entity_choice
-                if "." in target_entity_choice:
+
+                matching_cand = next(
+                    (
+                        e
+                        for e in candidates.entities
+                        if e.entity_id == target_entity_choice
+                    ),
+                    None,
+                )
+                if matching_cand and matching_cand.domain:
+                    resolved_domain = matching_cand.domain
+                elif "." in target_entity_choice:
                     resolved_domain = target_entity_choice.split(".", 1)[0]
+
+                if resolved_domain:
+                    slots["domain"] = resolved_domain
+
+                if matching_cand:
+                    if matching_cand.area_id:
+                        slots["preferred_area_id"] = matching_cand.area_id
+                    elif matching_cand.area_name:
+                        slots["preferred_area_id"] = matching_cand.area_name
             else:
                 return Decision(
                     intent_name=None,
@@ -244,8 +264,24 @@ class TargetBindingDecisionResolver(DecisionResolver):
             target_confidence = target_entity_conf
             resolved_entity = target_entity_choice
             slots["entity_id"] = target_entity_choice
-            if "." in target_entity_choice:
+
+            matching_cand = next(
+                (e for e in candidates.entities if e.entity_id == target_entity_choice),
+                None,
+            )
+            if matching_cand and matching_cand.domain:
+                resolved_domain = matching_cand.domain
+            elif "." in target_entity_choice:
                 resolved_domain = target_entity_choice.split(".", 1)[0]
+
+            if resolved_domain:
+                slots["domain"] = resolved_domain
+
+            if matching_cand:
+                if matching_cand.area_id:
+                    slots["preferred_area_id"] = matching_cand.area_id
+                elif matching_cand.area_name:
+                    slots["preferred_area_id"] = matching_cand.area_name
         elif target_area_choice:
             if target_area_conf < self._confidence_threshold:
                 return Decision(

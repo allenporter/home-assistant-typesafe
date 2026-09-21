@@ -14,6 +14,7 @@ from custom_components.typesafe.speculative.resolution.target_binding import (
 )
 from custom_components.typesafe.speculative.retrieval.models import (
     AreaCandidate,
+    EntityCandidate,
     RetrievedCandidates,
 )
 from custom_components.typesafe.speculative.scoring.engine import PredictionResult
@@ -227,3 +228,42 @@ def test_resolve_controllable_domain_matching_in_area(
     assert not decision.should_escalate
     assert decision.area_name == "Patio"
     assert decision.slots["area"] == "Patio"
+
+
+def test_resolve_entity_preserves_domain_and_area_metadata(
+    resolver: TargetBindingDecisionResolver,
+) -> None:
+    """Test resolving entity target preserves domain and preferred area from entity candidate."""
+    candidates = RetrievedCandidates(
+        entities=[
+            EntityCandidate(
+                entity_id="cover.garage_door",
+                domain="cover",
+                friendly_name="Garage Door",
+                area_id="garage",
+                area_name="Garage",
+                score=1.0,
+            )
+        ]
+    )
+    request = ParsedRequest(
+        raw_text="Open the garage door",
+        normalized_text="open the garage door",
+        tokens={"open", "the", "garage", "door"},
+    )
+    prediction = PredictionResult(
+        answers={
+            "intent": ChoiceAnswer(choice="HassOpenCover", confidence=0.95),
+            "target_type": ChoiceAnswer(choice="entity", confidence=0.9),
+            "target_entity": ChoiceAnswer(choice="cover.garage_door", confidence=0.92),
+            "is_compound": NoulAnswer(noul=0.01),
+        }
+    )
+
+    decision = resolver.resolve(prediction, request, candidates)
+    assert not decision.should_escalate
+    assert decision.intent_name == "HassOpenCover"
+    assert decision.entity_id == "cover.garage_door"
+    assert decision.domain == "cover"
+    assert decision.slots["domain"] == "cover"
+    assert decision.slots["preferred_area_id"] == "garage"

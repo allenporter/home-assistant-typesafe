@@ -2305,3 +2305,46 @@ async def test_error_response_preserves_language_and_conversation_id(
     )
     assert res.conversation_id == "conv-es-001"
     assert res.response.language == "es"
+
+
+async def test_process_entity_passes_domain_slot_to_prevent_duplicate_name_collision(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_intent_handlers: dict[str, MockBaseIntentHandler],
+    mock_client: MockTypeSafeClient,
+) -> None:
+    """Test that resolving an entity passes domain slot to prevent duplicate name collision."""
+    hass.states.async_set(
+        "cover.garage_door",
+        "closed",
+        {"friendly_name": "Garage Door"},
+    )
+    hass.states.async_set(
+        "light.garage_door",
+        "off",
+        {"friendly_name": "Garage Door"},
+    )
+
+    mock_client.set_answers(
+        {
+            "intent": {"choice": "HassTurnOn", "confidence": 0.95},
+            "target_type": {"choice": "entity", "confidence": 0.90},
+            "target_entity": {"choice": "cover.garage_door", "confidence": 0.92},
+            "is_compound": {"noul": 0.01},
+        }
+    )
+
+    result = await conversation.async_converse(
+        hass=hass,
+        text="Open the garage door",
+        conversation_id=None,
+        context=Context(),
+        agent_id=config_entry.entry_id,
+    )
+
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+    handler = mock_intent_handlers["HassTurnOn"]
+    assert len(handler.handled_intents) == 1
+    intent_obj = handler.handled_intents[-1]
+    assert intent_obj.slots["name"]["value"] == "Garage Door"
+    assert intent_obj.slots["domain"]["value"] == "cover"

@@ -285,3 +285,38 @@ def test_candidate_ranking_filters_by_intent_domain(
     ]
     assert "media_player.smart_speaker" in pruned_candidates
     assert "light.kitchen_light" not in pruned_candidates
+
+
+def test_lexical_preserves_full_handler_description(
+    farmhouse_context: DecisionContext,
+) -> None:
+    """Verify that multi-sentence handler descriptions are preserved without sentence truncation."""
+    processor = TokenizingRequestProcessor()
+    req = processor.process("Turn on the kitchen light")
+    retriever = LexicalCandidateRetriever()
+
+    candidates = retriever.retrieve(req, farmhouse_context)
+    turn_on_cand = next(
+        (i for i in candidates.intents if i.intent_type == "HassTurnOn"), None
+    )
+    assert turn_on_cand is not None
+    assert turn_on_cand.description is not None
+    assert "Turns on/opens/presses a device or entity" in turn_on_cand.description
+    assert "For locks, this performs a 'lock' action." in turn_on_cand.description
+
+
+def test_lexical_cover_intent_boosts_cover_domain_and_excludes_sensors(
+    farmhouse_context: DecisionContext,
+) -> None:
+    """Verify that candidate cover intent boosts cover domain entities and excludes sensors."""
+    processor = TokenizingRequestProcessor()
+    req = processor.process("Open the barn garage door")
+    retriever = LexicalCandidateRetriever()
+
+    candidates = retriever.retrieve(req, farmhouse_context)
+    entity_ids = [e.entity_id for e in candidates.entities]
+
+    assert "cover.barn_garage_door" in entity_ids
+    assert candidates.entities[0].entity_id == "cover.barn_garage_door"
+    assert all(not eid.startswith("sensor.") for eid in entity_ids)
+    assert all(not eid.startswith("binary_sensor.") for eid in entity_ids)

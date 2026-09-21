@@ -10,7 +10,6 @@ from ..context import DecisionContext
 from ..request.models import ParsedRequest
 from .base import CandidateRetriever
 from .heuristics import (
-    CANONICAL_INTENT_DESCRIPTIONS,
     CONTROLLABLE_DOMAINS,
     INFORMATIONAL_INTENTS,
     can_fulfill_intent,
@@ -76,40 +75,28 @@ class LexicalCandidateRetriever(CandidateRetriever):
             except (KeyError, AttributeError):
                 registered_handlers = []
 
-        if registered_handlers:
-            for handler in registered_handlers:
-                intent_type = getattr(handler, "intent_type", None)
-                if (
-                    not intent_type
-                    or intent_type in INFORMATIONAL_INTENTS
-                    or not can_fulfill_intent(handler)
-                ):
-                    continue
+        for handler in registered_handlers:
+            intent_type = getattr(handler, "intent_type", None)
+            if (
+                not intent_type
+                or intent_type in INFORMATIONAL_INTENTS
+                or not can_fulfill_intent(handler)
+            ):
+                continue
 
-                raw_desc = (
-                    getattr(handler, "description", None)
-                    or getattr(handler, "__doc__", None)
-                    or CANONICAL_INTENT_DESCRIPTIONS.get(intent_type)
-                    or f"Handle {intent_type.replace('Hass', '').strip()}"
-                )
-                desc = raw_desc.split(". ")[0].strip()
-                if not desc.endswith("."):
-                    desc += "."
+            raw_desc = (
+                getattr(handler, "description", None)
+                or getattr(handler, "__doc__", None)
+                or f"Handle {intent_type.replace('Hass', '').strip()}"
+            )
+            desc = raw_desc.strip()
 
-                desc_score = lexical_score(query_tokens, desc, full_query)
-                name_score = lexical_score(
-                    query_tokens, intent_type.replace("Hass", " "), full_query
-                )
-                score = desc_score + name_score
-                scored_candidates.append((score, intent_type, desc))
-        else:
-            for it, desc in CANONICAL_INTENT_DESCRIPTIONS.items():
-                desc_score = lexical_score(query_tokens, desc, full_query)
-                name_score = lexical_score(
-                    query_tokens, it.replace("Hass", " "), full_query
-                )
-                score = desc_score + name_score
-                scored_candidates.append((score, it, desc))
+            desc_score = lexical_score(query_tokens, desc, full_query)
+            name_score = lexical_score(
+                query_tokens, intent_type.replace("Hass", " "), full_query
+            )
+            score = desc_score + name_score
+            scored_candidates.append((score, intent_type, desc))
 
         scored_candidates.sort(key=lambda x: x[0], reverse=True)
 
@@ -126,16 +113,23 @@ class LexicalCandidateRetriever(CandidateRetriever):
         ]
 
         if not positive_candidates:
+            handlers_by_type = {
+                getattr(h, "intent_type", None): h for h in registered_handlers
+            }
             existing_names = {c.intent_type for c in candidates}
             for itype in ("HassTurnOn", "HassTurnOff"):
                 if itype not in existing_names and len(candidates) < self._max_intents:
+                    h = handlers_by_type.get(itype)
+                    fallback_desc = (
+                        getattr(h, "description", None) or getattr(h, "__doc__", None)
+                        if h
+                        else None
+                    ) or f"Handle {itype.replace('Hass', '')}"
                     candidates.append(
                         IntentCandidate(
                             intent_type=itype,
                             score=0.0,
-                            description=CANONICAL_INTENT_DESCRIPTIONS.get(
-                                itype, f"Handle {itype.replace('Hass', '')}"
-                            ),
+                            description=fallback_desc.strip(),
                         )
                     )
 

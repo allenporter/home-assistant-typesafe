@@ -169,8 +169,19 @@ class TypeSafeConversationEntity(
                     state.attributes.get("friendly_name") if state else None
                 ) or slot_val
                 formatted_slots["name"] = {"value": name}
+                if (
+                    state
+                    and "domain" not in formatted_slots
+                    and "domain" not in decision.slots
+                ):
+                    formatted_slots["domain"] = {"value": state.domain}
+            elif slot_key == "domain":
+                formatted_slots["domain"] = {"value": slot_val}
             else:
                 formatted_slots[slot_key] = {"value": slot_val}
+
+        if "domain" not in formatted_slots and decision.domain:
+            formatted_slots["domain"] = {"value": decision.domain}
 
         try:
             intent_response = await intent.async_handle(

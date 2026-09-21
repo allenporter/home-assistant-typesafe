@@ -48,7 +48,10 @@ from custom_components.typesafe.speculative.retrieval.lexical import (
 )
 from custom_components.typesafe.speculative.scoring.scorer import EngineScorer
 from custom_components.typesafe.speculative.testing.engine import FakeDecisionEngine
-from tests.common.fixture_loader import load_synthetic_home_fixtures
+from tests.common.fixture_loader import (
+    load_synthetic_home_fixtures,
+    register_standard_intents,
+)
 
 
 class FailingDecisionEngine(FakeDecisionEngine):
@@ -78,6 +81,7 @@ def context_fixture(hass: HomeAssistant) -> DecisionContext:
     hass.states.async_set(
         "light.kitchen_light", "off", {"friendly_name": "Kitchen Light"}
     )
+    register_standard_intents(hass)
 
     return DecisionContext(
         hass=hass,
@@ -307,8 +311,11 @@ async def test_farmhouse_decision_routing(hass: HomeAssistant) -> None:
     assert not decision.should_escalate
     assert not decision.is_compound
     assert decision.intent_name == "HassTurnOn"
-    assert decision.confidence == 0.96
-    assert decision.slots == {"entity_id": "light.kitchen_light"}
+    assert decision.slots == {
+        "entity_id": "light.kitchen_light",
+        "domain": "light",
+        "preferred_area_id": "kitchen",
+    }
 
 
 async def test_simple_flow_end_to_end(

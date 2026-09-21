@@ -85,18 +85,6 @@ SUPPORTED_DECISION_SLOTS: frozenset[str] = frozenset(
     {"name", "area", "domain", "floor", "device_class", "brightness", "temperature"}
 )
 
-CANONICAL_INTENT_DESCRIPTIONS: dict[str, str] = {
-    "HassTurnOn": "Turn on or activate a device, light, or appliance",
-    "HassTurnOff": "Turn off or deactivate a device, light, or appliance",
-    "HassToggle": "Toggle a device on or off",
-    "HassLightSet": "Set brightness, dim, or change color of lights",
-    "HassClimateSetTemperature": "Set target temperature for thermostat or climate device",
-    "HassMediaPause": "Pause media, music, or playback",
-    "HassMediaUnpause": "Resume media, music, or playback",
-    "HassOpenCover": "Open a cover, garage door, blinds, or shades",
-    "HassCloseCover": "Close a cover, garage door, blinds, or shades",
-    "HassStopMoving": "Stop movement of a cover, garage door, or shades",
-}
 
 STOPWORDS: frozenset[str] = frozenset(
     {"the", "a", "an", "of", "to", "for", "is", "at", "by", "with", "or"}

@@ -90,7 +90,9 @@ class DecisionFlow:
 def create_decision_flow(
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
     compound_threshold: float = DEFAULT_COMPOUND_THRESHOLD,
-    domain_filter_mode: Literal["none", "strict", "boost"] = "none",
+    domain_filter_mode: Literal["none", "strict", "boost"] = (
+        DEFAULT_DOMAIN_FILTER_MODE
+    ),
 ) -> DecisionFlow:
     """Create a standard DecisionFlow."""
     return DecisionFlow(
