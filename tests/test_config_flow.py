@@ -13,9 +13,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.typesafe.client import TypeSafeAuthError, TypeSafeError
 from custom_components.typesafe.const import (
     CONF_API_KEY,
+    CONF_COMPOUND_THRESHOLD,
     CONF_CONFIDENCE_THRESHOLD,
+    CONF_DOMAIN_FILTER_MODE,
     CONF_FALLBACK_AGENT,
     CONF_MODEL,
+    CONF_RETRIEVER_TYPE,
     DEFAULT_NAME,
     DOMAIN,
 )
@@ -117,6 +120,9 @@ async def test_options_flow_update(
         result["flow_id"],
         {
             CONF_CONFIDENCE_THRESHOLD: 0.85,
+            CONF_COMPOUND_THRESHOLD: 0.4,
+            CONF_RETRIEVER_TYPE: "lexical",
+            CONF_DOMAIN_FILTER_MODE: "boost",
             CONF_FALLBACK_AGENT: "conversation.home_assistant",
         },
     )
@@ -125,5 +131,8 @@ async def test_options_flow_update(
     assert result2.get("type") is FlowResultType.CREATE_ENTRY
     assert config_entry.options == {
         CONF_CONFIDENCE_THRESHOLD: 0.85,
+        CONF_COMPOUND_THRESHOLD: 0.4,
+        CONF_RETRIEVER_TYPE: "lexical",
+        CONF_DOMAIN_FILTER_MODE: "boost",
         CONF_FALLBACK_AGENT: "conversation.home_assistant",
     }

@@ -4,14 +4,37 @@ from __future__ import annotations
 
 from collections.abc import Collection
 import logging
-import re
-
+from typing import TYPE_CHECKING
 from homeassistant.helpers import intent
 import voluptuous as vol
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+from ..request.processor import tokenize
 
 _LOGGER = logging.getLogger(__name__)
 
 CONTROLLABLE_DOMAINS: frozenset[str] = frozenset(
+    {
+        "light",
+        "switch",
+        "climate",
+        "cover",
+        "media_player",
+        "fan",
+        "lock",
+        "vacuum",
+        "valve",
+        "scene",
+        "script",
+        "automation",
+        "humidifier",
+        "water_heater",
+    }
+)
+
+ON_OFF_SERVICE_DOMAINS: frozenset[str] = frozenset(
     {
         "light",
         "switch",
@@ -79,11 +102,6 @@ STOPWORDS: frozenset[str] = frozenset(
 )
 
 
-def tokenize(text: str) -> set[str]:
-    """Tokenize a string into a set of unique lowercase alphanumeric words."""
-    return set(re.findall(r"\b\w+\b", text.lower()))
-
-
 def token_match(q_token: str, cand_token: str) -> bool:
     """Check if query token matches candidate token via equality or prefix matching."""
     if q_token == cand_token:
@@ -117,27 +135,6 @@ def lexical_score(query_tokens: set[str], candidate: str, full_query: str) -> fl
     if cand_lower in query_lower or query_lower in cand_lower:
         score += 2.0
     return score
-
-
-def get_allowed_domains_for_intents(
-    candidate_intent_types: Collection[str],
-    handlers_by_type: dict[str, intent.IntentHandler] | None = None,
-) -> set[str]:
-    """Derive allowed entity domains from candidate intents and their platform handlers."""
-    allowed_domains: set[str] = set()
-    handlers = handlers_by_type or {}
-
-    for itype in candidate_intent_types:
-        if itype == "unmatched" or itype in INFORMATIONAL_INTENTS:
-            continue
-        handler = handlers.get(itype)
-        platforms = getattr(handler, "platforms", None) if handler else None
-        if platforms:
-            allowed_domains.update(platforms)
-        elif itype in ("HassTurnOn", "HassTurnOff", "HassToggle"):
-            allowed_domains.update(CONTROLLABLE_DOMAINS)
-
-    return allowed_domains if allowed_domains else set(CONTROLLABLE_DOMAINS)
 
 
 def get_handler_slot_info(
@@ -183,3 +180,115 @@ def can_fulfill_intent(handler: intent.IntentHandler) -> bool:
     _supported, required = get_handler_slot_info(handler)
     unsupported_required = required - SUPPORTED_DECISION_SLOTS
     return len(unsupported_required) == 0
+
+
+class IntentDomainStrategy:
+    """Strategy for deriving controllable entity domains from intents and services."""
+
+    def __init__(self, hass: HomeAssistant | None = None) -> None:
+        """Initialize IntentDomainStrategy."""
+        self._hass = hass
+
+    def get_on_off_domains(self) -> set[str]:
+        """Extract all domains that expose turn_on or turn_off services."""
+        if (
+            self._hass
+            and hasattr(self._hass, "services")
+            and hasattr(self._hass.services, "async_services")
+        ):
+            services = self._hass.services.async_services()
+            domains = {
+                domain
+                for domain, domain_services in services.items()
+                if "turn_on" in domain_services or "turn_off" in domain_services
+            }
+            if domains:
+                return domains
+        return set(ON_OFF_SERVICE_DOMAINS)
+
+    def can_control_objects(self, handler: intent.IntentHandler) -> bool:
+        """Check whether an intent handler can control devices or objects."""
+        itype = getattr(handler, "intent_type", None)
+        if not itype or itype in INFORMATIONAL_INTENTS:
+            return False
+        if not can_fulfill_intent(handler):
+            return False
+
+        platforms = getattr(handler, "platforms", None)
+        if platforms:
+            return True
+
+        if itype in ("HassTurnOn", "HassTurnOff", "HassToggle"):
+            return True
+
+        supported, _ = get_handler_slot_info(handler)
+        return bool(supported & {"name", "area", "entity_id", "domain"})
+
+    def get_controllable_domains_from_intents(
+        self,
+        handlers_by_type: dict[str, intent.IntentHandler] | None = None,
+    ) -> set[str]:
+        """Get list of all intents, exclude informational/uncontrollable, and combine with service on/off domains."""
+        handlers = handlers_by_type or {}
+        if not handlers and self._hass:
+            try:
+                handlers = {
+                    getattr(h, "intent_type", ""): h
+                    for h in intent.async_get(self._hass)
+                    if hasattr(h, "intent_type")
+                }
+            except (KeyError, AttributeError):
+                handlers = {}
+
+        domains: set[str] = set()
+        for itype, handler in handlers.items():
+            if itype in INFORMATIONAL_INTENTS or not self.can_control_objects(handler):
+                continue
+            platforms = getattr(handler, "platforms", None)
+            if platforms:
+                domains.update(platforms)
+
+        domains.update(self.get_on_off_domains())
+        return domains
+
+    def get_domains_for_intents(
+        self,
+        candidate_intents: Collection[str],
+        handlers_by_type: dict[str, intent.IntentHandler] | None = None,
+    ) -> set[str]:
+        """Derive allowed domains from candidate intents and their platform handlers."""
+        handlers = handlers_by_type or {}
+        if not handlers and self._hass:
+            try:
+                handlers = {
+                    getattr(h, "intent_type", ""): h
+                    for h in intent.async_get(self._hass)
+                    if hasattr(h, "intent_type")
+                }
+            except (KeyError, AttributeError):
+                handlers = {}
+
+        domains: set[str] = set()
+        for itype in candidate_intents:
+            if itype in INFORMATIONAL_INTENTS:
+                continue
+            handler = handlers.get(itype)
+            platforms = getattr(handler, "platforms", None) if handler else None
+            if platforms:
+                domains.update(platforms)
+            elif itype in ("HassTurnOn", "HassTurnOff", "HassToggle"):
+                domains.update(self.get_on_off_domains())
+
+        return (
+            domains if domains else self.get_controllable_domains_from_intents(handlers)
+        )
+
+
+def get_allowed_domains_for_intents(
+    candidate_intent_types: Collection[str],
+    handlers_by_type: dict[str, intent.IntentHandler] | None = None,
+    hass: HomeAssistant | None = None,
+) -> set[str]:
+    """Derive allowed entity domains from candidate intents and their platform handlers."""
+    strategy = IntentDomainStrategy(hass=hass)
+    return strategy.get_domains_for_intents(candidate_intent_types, handlers_by_type)

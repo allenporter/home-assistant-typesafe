@@ -20,11 +20,29 @@
     "step": {
       "init": {
         "title": "TypeSafe Options",
-        "description": "Configure decision thresholds and fallback agent.",
+        "description": "Configure decision flow pipeline, thresholds, and fallback agent.",
         "data": {
           "confidence_threshold": "Confidence Threshold",
+          "compound_threshold": "Compound Threshold",
+          "retriever_type": "Candidate Retriever",
+          "domain_filter_mode": "Domain Filter Mode",
           "fallback_agent": "Fallback Conversation Agent"
         }
+      }
+    }
+  },
+  "selector": {
+    "retriever_type": {
+      "options": {
+        "lexical": "Lexical",
+        "exhaustive": "Exhaustive"
+      }
+    },
+    "domain_filter_mode": {
+      "options": {
+        "none": "None",
+        "strict": "Strict",
+        "boost": "Boost"
       }
     }
   }

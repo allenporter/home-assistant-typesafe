@@ -59,3 +59,22 @@ def test_exhaustive_returns_all_controllable_entities(
     assert "switch.switch_1" in entity_ids
     assert "sensor.sensor_1" not in entity_ids
     assert len(candidates.areas) == 2
+
+
+def test_exhaustive_returns_all_entities_when_not_controllable_only(
+    context: DecisionContext,
+) -> None:
+    """Test exhaustive retriever returns all entities when controllable_only=False."""
+    retriever = ExhaustiveCandidateRetriever(controllable_only=False)
+    request = ParsedRequest(
+        raw_text="Random text unrelated to devices",
+        normalized_text="random text unrelated to devices",
+        tokens={"random", "text"},
+    )
+
+    candidates = retriever.retrieve(request, context)
+    entity_ids = [e.entity_id for e in candidates.entities]
+    assert "light.light_1" in entity_ids
+    assert "switch.switch_1" in entity_ids
+    assert "sensor.sensor_1" in entity_ids
+    assert len(candidates.areas) == 2

@@ -7,8 +7,9 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.typesafe.speculative.context import DecisionContext
 from custom_components.typesafe.speculative.request.processor import (
-    DefaultRequestProcessor,
+    TokenizingRequestProcessor,
 )
+
 from custom_components.typesafe.speculative.retrieval.lexical import (
     LexicalCandidateRetriever,
 )
@@ -67,7 +68,8 @@ async def test_farmhouse_batch_candidate_recall(
     domain_filter_mode: str,
 ) -> None:
     """Test candidate intent and entity retrieval recall across all labeled utterances for each filter mode."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
+
     retriever = LexicalCandidateRetriever(domain_filter_mode=domain_filter_mode)  # type: ignore[arg-type]
     cases = load_device_action_cases()
 

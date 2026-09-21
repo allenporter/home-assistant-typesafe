@@ -7,6 +7,8 @@ from homeassistant.helpers import intent
 
 from custom_components.typesafe.speculative.retrieval.heuristics import (
     CONTROLLABLE_DOMAINS,
+    ON_OFF_SERVICE_DOMAINS,
+    IntentDomainStrategy,
     can_fulfill_intent,
     get_allowed_domains_for_intents,
     get_handler_slot_info,
@@ -109,3 +111,39 @@ def test_get_allowed_domains_for_intents() -> None:
 
     info_domains = get_allowed_domains_for_intents(["HassGetState"], handlers)
     assert info_domains == set(CONTROLLABLE_DOMAINS)
+
+
+def test_intent_domain_strategy_can_control_objects() -> None:
+    """Test IntentDomainStrategy control classification."""
+    strategy = IntentDomainStrategy()
+
+    assert strategy.can_control_objects(DummyValidHandler())
+    assert strategy.can_control_objects(DummyPlatformHandler())
+    assert not strategy.can_control_objects(DummyUnsupportedHandler())
+
+    class InfoHandler(intent.IntentHandler):
+        intent_type = "HassGetState"
+
+    assert not strategy.can_control_objects(InfoHandler())
+
+
+def test_intent_domain_strategy_allowed_domains() -> None:
+    """Test IntentDomainStrategy domain extraction."""
+    strategy = IntentDomainStrategy()
+    handlers = {
+        "HassMediaPause": DummyPlatformHandler(),
+        "HassLightSet": DummyLightHandler(),
+    }
+
+    candidate_domains = strategy.get_domains_for_intents(
+        candidate_intents=["HassMediaPause"],
+        handlers_by_type=handlers,
+    )
+    assert candidate_domains == {"media_player"}
+
+    full_domains = strategy.get_controllable_domains_from_intents(
+        handlers_by_type=handlers,
+    )
+    assert "media_player" in full_domains
+    assert "light" in full_domains
+    assert ON_OFF_SERVICE_DOMAINS.issubset(full_domains)

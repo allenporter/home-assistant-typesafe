@@ -13,8 +13,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.typesafe.speculative.context import DecisionContext
 from custom_components.typesafe.speculative.request.models import ParsedRequest
 from custom_components.typesafe.speculative.request.processor import (
-    DefaultRequestProcessor,
+    TokenizingRequestProcessor,
 )
+
 from custom_components.typesafe.speculative.retrieval.lexical import (
     LexicalCandidateRetriever,
 )
@@ -162,7 +163,7 @@ def test_farmhouse_candidate_entity_ranking(
     retriever: LexicalCandidateRetriever,
 ) -> None:
     """Test that candidate entity ranking surfaces the correct entity out of 28 entities."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
     request = processor.process("Turn on the Kitchen Light")
     candidates = retriever.retrieve(request, farmhouse_context)
 
@@ -178,7 +179,7 @@ def test_farmhouse_porch_light_ranking(
     retriever: LexicalCandidateRetriever,
 ) -> None:
     """Test candidate ranking for wrap-around porch devices."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
     request = processor.process("Turn off the Porch Light")
     candidates = retriever.retrieve(request, farmhouse_context)
 
@@ -194,7 +195,7 @@ def test_farmhouse_thermostat_intent_discovery(
     retriever: LexicalCandidateRetriever,
 ) -> None:
     """Test that supported climate actions are dynamically discovered when thermostat exists."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
     request = processor.process("Turn off the thermostat")
     candidates = retriever.retrieve(request, farmhouse_context)
 
@@ -210,7 +211,7 @@ def test_farmhouse_hard_disambiguation_recall(
     retriever: LexicalCandidateRetriever,
 ) -> None:
     """Test disambiguation across identical device names using area tokens."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
 
     # Family room speaker
     req = processor.process("Pause the music in the family room")
@@ -234,7 +235,7 @@ def test_farmhouse_valve_and_cover_candidate_recall(
     retriever: LexicalCandidateRetriever,
 ) -> None:
     """Test candidate retrieval for valve and cover domains."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
 
     # Valve: Backyard smart sprinkler system
     req = processor.process("Turn on the backyard sprinklers")
@@ -265,7 +266,7 @@ def test_candidate_ranking_filters_by_intent_domain(
     farmhouse_context: DecisionContext,
 ) -> None:
     """Verify that strict domain filtering prunes non-media entities for 'pause' while none retains them."""
-    processor = DefaultRequestProcessor()
+    processor = TokenizingRequestProcessor()
     req = processor.process("Pause the kitchen")
 
     # Unpruned retriever includes kitchen light due to area matching

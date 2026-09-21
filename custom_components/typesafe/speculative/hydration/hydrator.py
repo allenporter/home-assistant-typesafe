@@ -23,19 +23,28 @@ class CandidateHydrator(ABC):
         """Hydrate candidate metadata and construct System One questions."""
 
 
-class DefaultCandidateHydrator(CandidateHydrator):
-    """Default candidate hydrator constructing canonical System One questions."""
+class SimpleCandidateHydrator(CandidateHydrator):
+    """Simple candidate hydrator constructing a single intent classification question."""
 
-    def __init__(
+    def hydrate(
         self,
-        top_n_intents: int = 5,
-        top_n_entities: int = 20,
-        top_n_areas: int = 10,
-    ) -> None:
-        """Initialize DefaultCandidateHydrator."""
-        self._top_n_intents = top_n_intents
-        self._top_n_entities = top_n_entities
-        self._top_n_areas = top_n_areas
+        candidates: RetrievedCandidates,
+    ) -> dict[str, Question]:
+        """Hydrate candidate intents into an intent question."""
+        intent_criteria: dict[str, str | None] = {}
+        for c in candidates.intents:
+            intent_criteria[c.intent_type] = c.description or f"Handle {c.intent_type}"
+
+        return {
+            "intent": ChoiceQuestion(
+                instructions="Determine the primary Home Assistant action",
+                criteria=intent_criteria,
+            )
+        }
+
+
+class HierarchicalCandidateHydrator(CandidateHydrator):
+    """Candidate hydrator constructing a hierarchical multi-question schema."""
 
     def hydrate(
         self,
@@ -43,26 +52,19 @@ class DefaultCandidateHydrator(CandidateHydrator):
     ) -> dict[str, Question]:
         """Hydrate candidates into canonical questions."""
         intent_criteria: dict[str, str | None] = {}
-        for c in candidates.intents[: self._top_n_intents]:
+        for c in candidates.intents:
             intent_criteria[c.intent_type] = c.description or f"Handle {c.intent_type}"
-        intent_criteria["unmatched"] = (
-            "Not a home control request or unsupported intent"
-        )
 
         entity_criteria: dict[str, str | None] = {}
-        for e in candidates.entities[: self._top_n_entities]:
+        for e in candidates.entities:
             desc = f"{e.friendly_name} ({e.domain})"
             if e.area_name:
                 desc += f" in {e.area_name}"
             entity_criteria[e.entity_id] = desc
-        if entity_criteria:
-            entity_criteria["none"] = "None of the listed devices"
 
         area_criteria: dict[str, str | None] = {}
-        for a in candidates.areas[: self._top_n_areas]:
+        for a in candidates.areas:
             area_criteria[a.area_id] = f"{a.area_name} area"
-        if area_criteria:
-            area_criteria["none"] = "None of the listed areas"
 
         questions: dict[str, Question] = {
             "intent": ChoiceQuestion(
@@ -74,8 +76,8 @@ class DefaultCandidateHydrator(CandidateHydrator):
             ),
         }
 
-        has_entity_choices = len(entity_criteria) > 1
-        has_area_choices = len(area_criteria) > 1
+        has_entity_choices = bool(entity_criteria)
+        has_area_choices = bool(area_criteria)
 
         if has_entity_choices:
             questions["target_entity"] = ChoiceQuestion(

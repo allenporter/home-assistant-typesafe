@@ -12,6 +12,7 @@ from ..models import (
     NoulAnswer,
 )
 from ..request.models import ParsedRequest
+from ..retrieval.heuristics import CONTROLLABLE_DOMAINS
 from ..retrieval.models import RetrievedCandidates
 from ..scoring.engine import PredictionResult
 from .models import Decision
@@ -25,6 +26,11 @@ DEFAULT_COMPOUND_THRESHOLD: float = 0.50
 class DecisionResolver(ABC):
     """Abstract interface for Stage 5 decision resolution."""
 
+    @property
+    @abstractmethod
+    def confidence_threshold(self) -> float:
+        """Return the confidence threshold."""
+
     @abstractmethod
     def resolve(
         self,
@@ -35,15 +41,75 @@ class DecisionResolver(ABC):
         """Resolve prediction results into an actionable Decision."""
 
 
-class DefaultDecisionResolver(DecisionResolver):
-    """Default decision resolver handling confidence gating, targets, and slot binding."""
+class SimpleDecisionResolver(DecisionResolver):
+    """Simple decision resolver performing pure intent confidence gating."""
+
+    def __init__(
+        self,
+        confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+    ) -> None:
+        """Initialize SimpleDecisionResolver."""
+        self._confidence_threshold = confidence_threshold
+
+    @property
+    def confidence_threshold(self) -> float:
+        """Return the confidence threshold."""
+        return self._confidence_threshold
+
+    def resolve(
+        self,
+        prediction: PredictionResult,
+        request: ParsedRequest,
+        candidates: RetrievedCandidates,
+    ) -> Decision:
+        """Resolve prediction results into an intent decision."""
+        intent_ans = prediction.answers.get("intent")
+        if not isinstance(intent_ans, ChoiceAnswer) or not intent_ans.choice:
+            return Decision(
+                intent_name=None,
+                confidence=0.0,
+                should_escalate=True,
+                escalation_reason="Missing or invalid intent answer",
+                raw_answers=prediction.answers,
+            )
+
+        intent_choice = intent_ans.choice
+        top_prob = intent_ans.confidence
+        if intent_choice in intent_ans.probabilities:
+            try:
+                top_prob = float(intent_ans.probabilities[intent_choice])
+            except (ValueError, TypeError):
+                pass
+
+        if (
+            intent_choice.lower() in ("unmatched", "none", "other", "")
+            or top_prob < self._confidence_threshold
+        ):
+            return Decision(
+                intent_name=None,
+                confidence=top_prob,
+                should_escalate=True,
+                escalation_reason="Unhandled intent or low confidence",
+                raw_answers=prediction.answers,
+            )
+
+        return Decision(
+            intent_name=intent_choice,
+            confidence=top_prob,
+            should_escalate=False,
+            raw_answers=prediction.answers,
+        )
+
+
+class TargetBindingDecisionResolver(DecisionResolver):
+    """Decision resolver handling confidence gating, target disambiguation, and slot binding."""
 
     def __init__(
         self,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
         compound_threshold: float = DEFAULT_COMPOUND_THRESHOLD,
     ) -> None:
-        """Initialize DefaultDecisionResolver."""
+        """Initialize TargetBindingDecisionResolver."""
         self._confidence_threshold = confidence_threshold
         self._compound_threshold = compound_threshold
 
@@ -64,6 +130,22 @@ class DefaultDecisionResolver(DecisionResolver):
         if isinstance(primitive, ChoiceAnswer) and primitive.choice:
             return primitive.choice
         return None
+
+    @staticmethod
+    def _safe_choice_and_conf(
+        answer: Any, default_conf: float = 0.0
+    ) -> tuple[str | None, float]:
+        """Safely extract choice and confidence from an answer primitive."""
+        if isinstance(answer, ChoiceAnswer) and answer.choice:
+            choice = answer.choice
+            conf = answer.confidence
+            if choice in answer.probabilities:
+                try:
+                    conf = float(answer.probabilities[choice])
+                except (ValueError, TypeError):
+                    pass
+            return choice, conf
+        return None, default_conf
 
     @staticmethod
     def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -141,20 +223,48 @@ class DefaultDecisionResolver(DecisionResolver):
             )
 
         slots: dict[str, Any] = {}
-        target_type_choice = self._safe_choice(answers, "target_type")
-        target_area_choice = self._safe_choice(answers, "target_area")
-        target_entity_choice = self._safe_choice(answers, "target_entity")
+        target_type_choice, target_type_conf = self._safe_choice_and_conf(
+            answers.get("target_type")
+        )
+        target_area_choice, target_area_conf = self._safe_choice_and_conf(
+            answers.get("target_area")
+        )
+        target_entity_choice, target_entity_conf = self._safe_choice_and_conf(
+            answers.get("target_entity")
+        )
 
         resolved_entity: str | None = None
         resolved_area: str | None = None
         resolved_domain: str | None = None
+        target_confidence: float = 1.0
 
-        if target_type_choice == "area" or (
-            target_type_choice is None
-            and target_area_choice not in (None, "none")
-            and target_entity_choice in (None, "none")
-        ):
-            if target_area_choice and target_area_choice != "none":
+        if "target_type" in answers:
+            if target_type_conf < self._confidence_threshold:
+                return Decision(
+                    intent_name=None,
+                    confidence=min(top_prob, target_type_conf),
+                    should_escalate=True,
+                    escalation_reason="Low confidence on target type",
+                    raw_answers=answers,
+                )
+            if target_type_choice == "area":
+                if not target_area_choice:
+                    return Decision(
+                        intent_name=None,
+                        confidence=min(top_prob, target_type_conf),
+                        should_escalate=True,
+                        escalation_reason="Missing target area",
+                        raw_answers=answers,
+                    )
+                if target_area_conf < self._confidence_threshold:
+                    return Decision(
+                        intent_name=None,
+                        confidence=min(top_prob, target_type_conf, target_area_conf),
+                        should_escalate=True,
+                        escalation_reason="Low confidence on target area",
+                        raw_answers=answers,
+                    )
+                target_confidence = min(target_type_conf, target_area_conf)
                 resolved_area = next(
                     (
                         a.area_name
@@ -164,25 +274,79 @@ class DefaultDecisionResolver(DecisionResolver):
                     target_area_choice,
                 )
                 slots["area"] = resolved_area
-
-                for dom in (
-                    "light",
-                    "switch",
-                    "cover",
-                    "climate",
-                    "media_player",
-                    "fan",
-                ):
-                    if dom in request.normalized_text:
+                for dom in sorted(CONTROLLABLE_DOMAINS):
+                    if re.search(rf"\b{dom}(?:s|es)?\b", request.normalized_text):
                         resolved_domain = dom
                         slots["domain"] = dom
                         break
-        else:
-            if target_entity_choice and target_entity_choice != "none":
+            elif target_type_choice == "entity":
+                if not target_entity_choice:
+                    return Decision(
+                        intent_name=None,
+                        confidence=min(top_prob, target_type_conf),
+                        should_escalate=True,
+                        escalation_reason="Missing target entity",
+                        raw_answers=answers,
+                    )
+                if target_entity_conf < self._confidence_threshold:
+                    return Decision(
+                        intent_name=None,
+                        confidence=min(top_prob, target_type_conf, target_entity_conf),
+                        should_escalate=True,
+                        escalation_reason="Low confidence on target entity",
+                        raw_answers=answers,
+                    )
+                target_confidence = min(target_type_conf, target_entity_conf)
                 resolved_entity = target_entity_choice
                 slots["entity_id"] = target_entity_choice
                 if "." in target_entity_choice:
                     resolved_domain = target_entity_choice.split(".", 1)[0]
+            else:
+                return Decision(
+                    intent_name=None,
+                    confidence=min(top_prob, target_type_conf),
+                    should_escalate=True,
+                    escalation_reason="Ambiguous target type",
+                    raw_answers=answers,
+                )
+        elif target_entity_choice:
+            if target_entity_conf < self._confidence_threshold:
+                return Decision(
+                    intent_name=None,
+                    confidence=min(top_prob, target_entity_conf),
+                    should_escalate=True,
+                    escalation_reason="Low confidence on target entity",
+                    raw_answers=answers,
+                )
+            target_confidence = target_entity_conf
+            resolved_entity = target_entity_choice
+            slots["entity_id"] = target_entity_choice
+            if "." in target_entity_choice:
+                resolved_domain = target_entity_choice.split(".", 1)[0]
+        elif target_area_choice:
+            if target_area_conf < self._confidence_threshold:
+                return Decision(
+                    intent_name=None,
+                    confidence=min(top_prob, target_area_conf),
+                    should_escalate=True,
+                    escalation_reason="Low confidence on target area",
+                    raw_answers=answers,
+                )
+            target_confidence = target_area_conf
+            resolved_area = next(
+                (
+                    a.area_name
+                    for a in candidates.areas
+                    if a.area_id == target_area_choice
+                ),
+                target_area_choice,
+            )
+            slots["area"] = resolved_area
+            for dom in sorted(CONTROLLABLE_DOMAINS):
+                if re.search(rf"\b{dom}(?:s|es)?\b", request.normalized_text):
+                    resolved_domain = dom
+                    slots["domain"] = dom
+                    break
 
         # Bind numeric slots conditioned on the resolved domain
         if request.raw_percentages:
@@ -196,19 +360,11 @@ class DefaultDecisionResolver(DecisionResolver):
                 slots["humidity"] = request.raw_percentages[0]
             else:
                 slots["brightness"] = request.raw_percentages[0]
-        else:
-            brightness_match = re.search(r"(\d+)\s*%", request.raw_text)
-            if brightness_match:
-                slots["brightness"] = int(brightness_match.group(1))
 
         if request.raw_temperatures:
             slots["temperature"] = request.raw_temperatures[0]
-        else:
-            temp_match = re.search(
-                r"(\d+(?:\.\d+)?)\s*(?:degrees|deg|°)", request.raw_text, re.IGNORECASE
-            )
-            if temp_match:
-                slots["temperature"] = float(temp_match.group(1))
+
+        decision_confidence = min(top_prob, target_confidence)
 
         return Decision(
             intent_name=intent_choice,
@@ -216,7 +372,7 @@ class DefaultDecisionResolver(DecisionResolver):
             area_name=resolved_area,
             domain=resolved_domain,
             slots=slots,
-            confidence=top_prob,
+            confidence=decision_confidence,
             should_escalate=False,
             raw_answers=answers,
         )

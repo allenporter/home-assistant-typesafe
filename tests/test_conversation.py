@@ -1260,10 +1260,8 @@ async def test_speculative_fan_out_with_areas_only(
 
     assert "intent" in questions
     assert "is_compound" in questions
-    # target_area has the area + "none" = 2 choices (> 1)
     assert "target_area" in questions
     assert area.id in questions["target_area"]["criteria"]
-    assert "none" in questions["target_area"]["criteria"]
 
     # target_entity and target_type must NOT be present
     assert "target_entity" not in questions
@@ -1298,10 +1296,8 @@ async def test_speculative_fan_out_with_entities_only(
 
     assert "intent" in questions
     assert "is_compound" in questions
-    # target_entity has the entity + "none" = 2 choices (> 1)
     assert "target_entity" in questions
     assert "light.hallway" in questions["target_entity"]["criteria"]
-    assert "none" in questions["target_entity"]["criteria"]
 
     # target_area and target_type must NOT be present
     assert "target_area" not in questions
@@ -1721,9 +1717,6 @@ async def test_zero_exposed_entities_and_zero_areas_question_schema(
     assert "target_area" not in questions
     assert "target_type" not in questions
 
-    # Intent criteria must have at least 2 choices
-    assert len(questions["intent"]["criteria"]) >= 2
-    assert "unmatched" in questions["intent"]["criteria"]
     assert "HassTurnOn" in questions["intent"]["criteria"]
 
     # Intent executes successfully without slots
@@ -2071,13 +2064,13 @@ async def test_area_targeting_without_domain_keyword(
     assert "domain" not in slots
 
 
-async def test_target_entity_none_choice_ignored(
+async def test_target_entity_broad_execution_no_entity_slot(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
     mock_intent_handlers: dict[str, MockBaseIntentHandler],
 ) -> None:
-    """Test target entity 'none' choice does not populate entity_id slot."""
+    """Test broad utterance without entity target does not populate entity_id slot."""
     mock_client.set_answers(
         {
             "intent": {
@@ -2085,7 +2078,6 @@ async def test_target_entity_none_choice_ignored(
                 "confidence": 0.90,
                 "probabilities": {"HassTurnOn": 0.90},
             },
-            "target_entity": {"choice": "none", "confidence": 0.90},
             "is_compound": {"noul": 0.0},
         }
     )

@@ -21,14 +21,23 @@ from .models import (
 
 
 class ExhaustiveCandidateRetriever(CandidateRetriever):
-    """Retriever returning all controllable entities and supported intents without filtering."""
+    """Retriever returning all entities and supported intents without filtering."""
+
+    def __init__(self, controllable_only: bool = True) -> None:
+        """Initialize ExhaustiveCandidateRetriever."""
+        self._controllable_only = controllable_only
+
+    @property
+    def controllable_only(self) -> bool:
+        """Whether retrieval is restricted to controllable domains."""
+        return self._controllable_only
 
     def retrieve(
         self,
         request: ParsedRequest,
         context: DecisionContext,
     ) -> RetrievedCandidates:
-        """Retrieve all controllable entities, areas, and fulfillable intents."""
+        """Retrieve all entities, areas, and fulfillable intents."""
         # All fulfillable intents
         intents: list[IntentCandidate] = []
         registered_handlers: list[intent.IntentHandler] = []
@@ -64,12 +73,14 @@ class ExhaustiveCandidateRetriever(CandidateRetriever):
                         AreaCandidate(area_id=area_key, area_name=area.name, score=1.0)
                     )
 
-        # All controllable entities
+        # All entities
         entities: list[EntityCandidate] = []
         states = context.states if context.states is not None else []
         for state in states:
             domain = getattr(state, "domain", None)
-            if not domain or domain not in CONTROLLABLE_DOMAINS:
+            if not domain:
+                continue
+            if self._controllable_only and domain not in CONTROLLABLE_DOMAINS:
                 continue
 
             entity_id = state.entity_id

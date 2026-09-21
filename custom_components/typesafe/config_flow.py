@@ -19,12 +19,18 @@ from homeassistant.helpers import httpx_client, selector
 from .client import TypeSafeAuthError, TypeSafeClient, TypeSafeError
 from .const import (
     CONF_API_KEY,
+    CONF_COMPOUND_THRESHOLD,
     CONF_CONFIDENCE_THRESHOLD,
+    CONF_DOMAIN_FILTER_MODE,
     CONF_FALLBACK_AGENT,
     CONF_MODEL,
+    CONF_RETRIEVER_TYPE,
+    DEFAULT_COMPOUND_THRESHOLD,
     DEFAULT_CONFIDENCE_THRESHOLD,
+    DEFAULT_DOMAIN_FILTER_MODE,
     DEFAULT_MODEL,
     DEFAULT_NAME,
+    DEFAULT_RETRIEVER_TYPE,
     DOMAIN,
 )
 
@@ -109,6 +115,43 @@ class TypeSafeOptionsFlowHandler(OptionsFlow):
                         max=1.0,
                         step=0.05,
                         mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Optional(
+                    CONF_COMPOUND_THRESHOLD,
+                    default=self.config_entry.options.get(
+                        CONF_COMPOUND_THRESHOLD, DEFAULT_COMPOUND_THRESHOLD
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.0,
+                        max=1.0,
+                        step=0.05,
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Optional(
+                    CONF_RETRIEVER_TYPE,
+                    default=self.config_entry.options.get(
+                        CONF_RETRIEVER_TYPE, DEFAULT_RETRIEVER_TYPE
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=["lexical", "exhaustive"],
+                        translation_key="retriever_type",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_DOMAIN_FILTER_MODE,
+                    default=self.config_entry.options.get(
+                        CONF_DOMAIN_FILTER_MODE, DEFAULT_DOMAIN_FILTER_MODE
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=["none", "strict", "boost"],
+                        translation_key="domain_filter_mode",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
                 vol.Optional(

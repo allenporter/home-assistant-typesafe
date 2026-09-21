@@ -11,14 +11,12 @@ from homeassistant.helpers import httpx_client
 from .client import TypeSafeClient
 from .const import (
     CONF_API_KEY,
-    CONF_CONFIDENCE_THRESHOLD,
     CONF_MODEL,
-    DEFAULT_CONFIDENCE_THRESHOLD,
     DEFAULT_MODEL,
 )
 from .engine import TypeSafeDecisionEngine
 from .models import TypeSafeConfigEntry, TypeSafeData
-from .speculative.flow import create_decision_flow
+from .speculative.flow import create_flow_from_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,14 +27,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: TypeSafeConfigEntry) -> 
     """Set up a config entry."""
     api_key = entry.data[CONF_API_KEY]
     model = entry.data.get(CONF_MODEL, DEFAULT_MODEL)
-    confidence_threshold = float(
-        entry.options.get(CONF_CONFIDENCE_THRESHOLD, DEFAULT_CONFIDENCE_THRESHOLD)
-    )
 
     http_client = httpx_client.get_async_client(hass)
     client = TypeSafeClient(api_key=api_key, http_client=http_client, model=model)
     engine = TypeSafeDecisionEngine(client=client)
-    flow = create_decision_flow(confidence_threshold=confidence_threshold)
+    flow = create_flow_from_options(entry.options)
 
     entry.runtime_data = TypeSafeData(client=client, engine=engine, flow=flow)
 

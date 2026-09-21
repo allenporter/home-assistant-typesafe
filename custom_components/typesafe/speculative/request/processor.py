@@ -5,8 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import re
 
-from ..retrieval.heuristics import tokenize
 from .models import ParsedRequest
+
+
+def tokenize(text: str) -> set[str]:
+    """Tokenize a string into a set of unique lowercase alphanumeric words."""
+    return set(re.findall(r"\b\w+\b", text.lower()))
 
 
 class RequestProcessor(ABC):
@@ -19,8 +23,23 @@ class RequestProcessor(ABC):
         """Process an input utterance and optional originating area into a structured request representation."""
 
 
-class DefaultRequestProcessor(RequestProcessor):
-    """Default request processor implementation performing tokenization and normalization."""
+class SimpleRequestProcessor(RequestProcessor):
+    """Simple pass-through request processor performing basic tokenization and normalization."""
+
+    def process(
+        self, text: str, originating_area_id: str | None = None
+    ) -> ParsedRequest:
+        """Normalize text and extract lowercase word tokens without regex extraction."""
+        return ParsedRequest(
+            raw_text=text,
+            normalized_text=text.strip().lower(),
+            tokens=tokenize(text),
+            originating_area_id=originating_area_id,
+        )
+
+
+class TokenizingRequestProcessor(RequestProcessor):
+    """Request processor performing tokenization, normalization, and syntactic slot extraction."""
 
     def process(
         self, text: str, originating_area_id: str | None = None
