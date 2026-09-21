@@ -61,6 +61,10 @@ Tune runtime thresholds and pipeline behavior in **Settings > Devices & Services
 | **Domain Filter Mode**   | `domain_filter_mode`   | `none`    | Controls how intent domains filter candidate entities: `none` (unfiltered), `strict` (strict domain matching), or `boost` (lexical score boost for matching domains).    |
 | **Fallback Agent**       | `fallback_agent`       | —         | Optional secondary conversation agent (e.g., an LLM or Home Assistant Cloud) to handle complex queries, conversational dialogue, or low-confidence requests.             |
 
+## Related Projects
+
+- **[home-assistant-laya](https://github.com/allenporter/home-assistant-laya)**: A sibling integration that provides a 100% local, offline-capable voice decision engine running open-weight models directly on your hardware (CPU, CUDA, or Apple Silicon) using the same 5-stage speculative pipeline architecture.
+
 ## Development & Testing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [.agent/skills/developer/SKILL.md](.agent/skills/developer/SKILL.md) for local environment setup, running tests (`./script/test`), and linting (`./script/lint`).
