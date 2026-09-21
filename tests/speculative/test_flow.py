@@ -12,19 +12,14 @@ from homeassistant.helpers import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.typesafe.const import (
-    CONF_COMPOUND_THRESHOLD,
-    CONF_CONFIDENCE_THRESHOLD,
-    CONF_DOMAIN_FILTER_MODE,
-    CONF_RETRIEVER_TYPE,
-)
 from custom_components.typesafe.speculative.context import DecisionContext
 from custom_components.typesafe.speculative.flow import (
     DecisionFlow,
+    FlowConfig,
     create_decision_flow,
-    create_exhaustive_flow,
-    create_flow_from_options,
-    create_simple_flow,
+)
+from custom_components.typesafe.speculative.hydration.simple import (
+    SimpleCandidateHydrator,
 )
 from custom_components.typesafe.speculative.hydration.hierarchical import (
     HierarchicalCandidateHydrator,
@@ -33,9 +28,14 @@ from custom_components.typesafe.speculative.models import (
     ChoiceAnswer,
     NoulAnswer,
 )
+from custom_components.typesafe.speculative.request.simple import SimpleRequestProcessor
 from custom_components.typesafe.speculative.request.tokenizing import (
     TokenizingRequestProcessor,
 )
+from custom_components.typesafe.speculative.resolution.simple import (
+    SimpleDecisionResolver,
+)
+
 from custom_components.typesafe.speculative.resolution.target_binding import (
     TargetBindingDecisionResolver,
 )
@@ -104,13 +104,21 @@ def engine_fixture() -> FakeDecisionEngine:
     )
 
 
+@pytest.fixture(name="synthetic_flow")
+def synthetic_flow_fixture() -> DecisionFlow:
+    """Fixture providing a synthetic DecisionFlow for tests."""
+    return create_decision_flow(
+        FlowConfig(confidence_threshold=0.5, compound_threshold=0.5)
+    )
+
+
 async def test_flow_runs_all_five_stages(
-    context: DecisionContext, engine: FakeDecisionEngine
+    context: DecisionContext,
+    engine: FakeDecisionEngine,
+    synthetic_flow: DecisionFlow,
 ) -> None:
     """Test standard DecisionFlow pipeline end-to-end."""
-    flow = create_decision_flow()
-
-    decision = await flow.async_run(
+    decision = await synthetic_flow.async_run(
         text="Turn on the kitchen light to 50%",
         context=context,
         engine=engine,
@@ -149,74 +157,51 @@ async def test_flow_custom_stage_injection(
 
 def test_flow_factory_configurations() -> None:
     """Test creating decision flows with various configurations."""
-    standard_flow = create_decision_flow(domain_filter_mode="none")
-    assert (
-        cast(LexicalCandidateRetriever, standard_flow.retriever).domain_filter_mode
-        == "none"
+    custom_flow = create_decision_flow(
+        FlowConfig(
+            confidence_threshold=0.8,
+            compound_threshold=0.3,
+            domain_filter_mode="strict",
+        )
     )
+    custom_resolver = cast(TargetBindingDecisionResolver, custom_flow.resolver)
+    custom_retriever = cast(LexicalCandidateRetriever, custom_flow.retriever)
+    assert custom_resolver.confidence_threshold == 0.8
+    assert custom_resolver.compound_threshold == 0.3
+    assert custom_retriever.domain_filter_mode == "strict"
 
-    pruned_flow = create_decision_flow(domain_filter_mode="strict")
-    assert (
-        cast(LexicalCandidateRetriever, pruned_flow.retriever).domain_filter_mode
-        == "strict"
+    boosted_flow = create_decision_flow(
+        FlowConfig(
+            confidence_threshold=0.5,
+            compound_threshold=0.5,
+            domain_filter_mode="boost",
+        )
     )
-
-    boosted_flow = create_decision_flow(domain_filter_mode="boost")
     assert (
         cast(LexicalCandidateRetriever, boosted_flow.retriever).domain_filter_mode
         == "boost"
     )
 
-    exhaustive_flow = create_exhaustive_flow()
+    exhaustive_flow = create_decision_flow(
+        FlowConfig(
+            confidence_threshold=0.75,
+            compound_threshold=0.25,
+            retriever_type="exhaustive",
+        )
+    )
     assert type(exhaustive_flow.retriever) is ExhaustiveCandidateRetriever
-
-
-def test_create_flow_from_options_default() -> None:
-    """Test create_flow_from_options uses default stages and thresholds."""
-    flow = create_flow_from_options({})
-    resolver = cast(TargetBindingDecisionResolver, flow.resolver)
-    retriever = cast(LexicalCandidateRetriever, flow.retriever)
-    assert resolver.confidence_threshold == 0.7
-    assert resolver.compound_threshold == 0.5
-    assert retriever.domain_filter_mode == "none"
-
-
-def test_create_flow_from_options_custom_parameters() -> None:
-    """Test create_flow_from_options passes custom filter mode and thresholds."""
-    flow = create_flow_from_options(
-        {
-            CONF_CONFIDENCE_THRESHOLD: 0.85,
-            CONF_COMPOUND_THRESHOLD: 0.45,
-            CONF_DOMAIN_FILTER_MODE: "boost",
-        }
-    )
-    resolver = cast(TargetBindingDecisionResolver, flow.resolver)
-    retriever = cast(LexicalCandidateRetriever, flow.retriever)
-    assert resolver.confidence_threshold == 0.85
-    assert resolver.compound_threshold == 0.45
-    assert retriever.domain_filter_mode == "boost"
-
-
-def test_create_flow_from_options_exhaustive() -> None:
-    """Test create_flow_from_options selects exhaustive candidate retriever."""
-    flow = create_flow_from_options(
-        {
-            CONF_RETRIEVER_TYPE: "exhaustive",
-            CONF_CONFIDENCE_THRESHOLD: 0.9,
-            CONF_COMPOUND_THRESHOLD: 0.2,
-        }
-    )
-    resolver = cast(TargetBindingDecisionResolver, flow.resolver)
-    assert resolver.confidence_threshold == 0.9
-    assert resolver.compound_threshold == 0.2
-    assert flow.retriever.__class__.__name__ == "ExhaustiveCandidateRetriever"
+    ex_resolver = cast(TargetBindingDecisionResolver, exhaustive_flow.resolver)
+    assert ex_resolver.confidence_threshold == 0.75
+    assert ex_resolver.compound_threshold == 0.25
 
 
 async def test_flow_compound_and_low_confidence_escalation(
     context: DecisionContext,
 ) -> None:
     """Test compound command escalation and low confidence handling in flow."""
-    flow = create_decision_flow(confidence_threshold=0.8, compound_threshold=0.5)
+    flow = create_decision_flow(
+        FlowConfig(confidence_threshold=0.8, compound_threshold=0.5)
+    )
 
     compound_engine = FakeDecisionEngine(
         default_answers={
@@ -224,7 +209,6 @@ async def test_flow_compound_and_low_confidence_escalation(
             "is_compound": NoulAnswer(noul=0.8),
         }
     )
-
     compound_dec = await flow.async_run(
         text="Turn on light and play music",
         context=context,
@@ -251,9 +235,9 @@ async def test_flow_compound_and_low_confidence_escalation(
 
 async def test_flow_continuous_slots_extraction(
     context: DecisionContext,
+    synthetic_flow: DecisionFlow,
 ) -> None:
     """Test continuous slots extraction for brightness and temperature."""
-    flow = create_decision_flow()
     engine = FakeDecisionEngine(
         default_answers={
             "intent": ChoiceAnswer(choice="HassClimateSetTemperature", confidence=0.95),
@@ -261,7 +245,7 @@ async def test_flow_continuous_slots_extraction(
         }
     )
 
-    decision = await flow.async_run(
+    decision = await synthetic_flow.async_run(
         text="Set thermostat to 72.5 deg and lights to 80%",
         context=context,
         engine=engine,
@@ -272,12 +256,12 @@ async def test_flow_continuous_slots_extraction(
 
 async def test_flow_engine_prediction_exception(
     context: DecisionContext,
+    synthetic_flow: DecisionFlow,
 ) -> None:
     """Test that an unhandled engine exception escalates gracefully."""
-    flow = create_decision_flow()
     failing_engine = FailingDecisionEngine()
 
-    decision = await flow.async_run(
+    decision = await synthetic_flow.async_run(
         text="Turn on the light",
         context=context,
         engine=failing_engine,
@@ -286,10 +270,12 @@ async def test_flow_engine_prediction_exception(
     assert "API connection timeout" in (decision.escalation_reason or "")
 
 
-async def test_farmhouse_decision_routing(hass: HomeAssistant) -> None:
+async def test_farmhouse_decision_routing(
+    hass: HomeAssistant,
+    synthetic_flow: DecisionFlow,
+) -> None:
     """Test end-to-end decision routing with FakeDecisionEngine on a farmhouse utterance."""
     farmhouse_context = load_synthetic_home_fixtures(hass)
-    flow = create_decision_flow()
 
     engine = FakeDecisionEngine(
         default_answers={
@@ -302,7 +288,7 @@ async def test_farmhouse_decision_routing(hass: HomeAssistant) -> None:
         }
     )
 
-    decision = await flow.async_run(
+    decision = await synthetic_flow.async_run(
         text="Turn on the Kitchen Light",
         context=farmhouse_context,
         engine=engine,
@@ -311,6 +297,7 @@ async def test_farmhouse_decision_routing(hass: HomeAssistant) -> None:
     assert not decision.should_escalate
     assert not decision.is_compound
     assert decision.intent_name == "HassTurnOn"
+    assert decision.confidence == 0.96
     assert decision.slots == {
         "entity_id": "light.kitchen_light",
         "domain": "light",
@@ -321,8 +308,14 @@ async def test_farmhouse_decision_routing(hass: HomeAssistant) -> None:
 async def test_simple_flow_end_to_end(
     context: DecisionContext,
 ) -> None:
-    """Test create_simple_flow runs simple pass-through stages end-to-end."""
-    flow = create_simple_flow(confidence_threshold=0.8)
+    """Test DecisionFlow configured with simple pass-through stages end-to-end."""
+    flow = DecisionFlow(
+        processor=SimpleRequestProcessor(),
+        retriever=ExhaustiveCandidateRetriever(controllable_only=False),
+        hydrator=SimpleCandidateHydrator(),
+        scorer=EngineScorer(),
+        resolver=SimpleDecisionResolver(confidence_threshold=0.8),
+    )
     engine = FakeDecisionEngine(
         default_answers={
             "intent": ChoiceAnswer(choice="HassTurnOn", confidence=0.92),

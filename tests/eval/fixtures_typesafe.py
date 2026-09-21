@@ -14,10 +14,15 @@ import httpx
 import pytest
 
 from custom_components.typesafe.client import TypeSafeClient
-from custom_components.typesafe.const import DEFAULT_MODEL
+from custom_components.typesafe.const import (
+    DEFAULT_COMPOUND_THRESHOLD,
+    DEFAULT_CONFIDENCE_THRESHOLD,
+    DEFAULT_MODEL,
+)
 from custom_components.typesafe.engine import TypeSafeDecisionEngine
 from custom_components.typesafe.speculative.flow import (
     DecisionFlow,
+    FlowConfig,
     create_decision_flow,
 )
 from tests.conftest import MockTypeSafeClient
@@ -26,25 +31,48 @@ from tests.conftest import MockTypeSafeClient
 @pytest.fixture(name="typesafe_flow")
 def typesafe_flow_fixture() -> DecisionFlow:
     """Fixture providing a default DecisionFlow for TypeSafe."""
-    return create_decision_flow()
+    return create_decision_flow(
+        FlowConfig(
+            confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
+            compound_threshold=DEFAULT_COMPOUND_THRESHOLD,
+        )
+    )
 
 
 @pytest.fixture(name="flow_standard")
 def flow_standard_fixture() -> DecisionFlow:
     """Fixture providing an unpruned DecisionFlow."""
-    return create_decision_flow(domain_filter_mode="none")
+    return create_decision_flow(
+        FlowConfig(
+            confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
+            compound_threshold=DEFAULT_COMPOUND_THRESHOLD,
+            domain_filter_mode="none",
+        )
+    )
 
 
 @pytest.fixture(name="flow_pruned")
 def flow_pruned_fixture() -> DecisionFlow:
     """Fixture providing an IntentPruned DecisionFlow."""
-    return create_decision_flow(domain_filter_mode="strict")
+    return create_decision_flow(
+        FlowConfig(
+            confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
+            compound_threshold=DEFAULT_COMPOUND_THRESHOLD,
+            domain_filter_mode="strict",
+        )
+    )
 
 
 @pytest.fixture(name="flow_boosted")
 def flow_boosted_fixture() -> DecisionFlow:
     """Fixture providing a DomainBoosted DecisionFlow."""
-    return create_decision_flow(domain_filter_mode="boost")
+    return create_decision_flow(
+        FlowConfig(
+            confidence_threshold=DEFAULT_CONFIDENCE_THRESHOLD,
+            compound_threshold=DEFAULT_COMPOUND_THRESHOLD,
+            domain_filter_mode="boost",
+        )
+    )
 
 
 @pytest.fixture(name="mock_typesafe_engine")

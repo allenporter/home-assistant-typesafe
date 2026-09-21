@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+#
+# Synchronize the speculative decision engine and its unit tests
+# bidirectionally between Home Assistant integrations (e.g. Laya <-> Jev / TypeSafe).
+#
+# Usage:
+#   ./script/sync-speculative <source_repo> [dest_repo]
+#
+# Examples:
+#   # Sync from Jev into current repo (Laya):
+#   ./script/sync-speculative /workspaces/home-assistant-jev
+#
+#   # Sync from current repo (Laya) into Jev:
+#   ./script/sync-speculative . /workspaces/home-assistant-jev
+
+set -euo pipefail
+
+find_domain() {
+    local repo_dir="$1"
+    for d in "${repo_dir}/custom_components/"*/speculative; do
+        if [ -d "$d" ]; then
+            basename "$(dirname "$d")"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    echo "Usage: $0 <source_repo> [dest_repo]" >&2
+    echo "  dest_repo defaults to current directory ('.')" >&2
+    exit 1
+fi
+
+SRC_DIR="$(realpath "$1")"
+DST_DIR="$(realpath "${2:-.}")"
+
+if [ ! -d "$SRC_DIR" ]; then
+    echo "Error: Source directory '$SRC_DIR' does not exist." >&2
+    exit 1
+fi
+
+if [ ! -d "$DST_DIR" ]; then
+    echo "Error: Destination directory '$DST_DIR' does not exist." >&2
+    exit 1
+fi
+
+SRC_DOMAIN="$(find_domain "$SRC_DIR")" || {
+    echo "Error: Could not locate custom_components/<domain>/speculative in '$SRC_DIR'" >&2
+    exit 1
+}
+
+DST_DOMAIN="$(find_domain "$DST_DIR")" || {
+    echo "Error: Could not locate custom_components/<domain>/speculative in '$DST_DIR'" >&2
+    exit 1
+}
+
+echo "============================================================"
+echo "Syncing Speculative Submodule"
+echo "  Source:      ${SRC_DOMAIN} (${SRC_DIR})"
+echo "  Destination: ${DST_DOMAIN} (${DST_DIR})"
+echo "============================================================"
+
+# 1. Sync core speculative package (100% domain-agnostic)
+echo "==> Syncing custom_components/${SRC_DOMAIN}/speculative -> custom_components/${DST_DOMAIN}/speculative..."
+mkdir -p "${DST_DIR}/custom_components/${DST_DOMAIN}/speculative"
+rsync -av --delete \
+    --exclude="__pycache__" \
+    --exclude="*.pyc" \
+    "${SRC_DIR}/custom_components/${SRC_DOMAIN}/speculative/" \
+    "${DST_DIR}/custom_components/${DST_DOMAIN}/speculative/"
+
+# 2. Sync speculative unit tests
+if [ -d "${SRC_DIR}/tests/speculative" ]; then
+    echo "==> Syncing tests/speculative..."
+    mkdir -p "${DST_DIR}/tests/speculative"
+    rsync -av --delete \
+        --exclude="__pycache__" \
+        --exclude="*.pyc" \
+        "${SRC_DIR}/tests/speculative/" \
+        "${DST_DIR}/tests/speculative/"
+
+    # 3. Rewrite test imports if domains differ
+    if [ "${SRC_DOMAIN}" != "${DST_DOMAIN}" ]; then
+        echo "==> Rewriting test imports from custom_components.${SRC_DOMAIN} -> custom_components.${DST_DOMAIN}..."
+        find "${DST_DIR}/tests/speculative" -type f -name "*.py" -exec \
+            sed -i "s/custom_components\.${SRC_DOMAIN}/custom_components\.${DST_DOMAIN}/g" {} +
+    fi
+fi
+
+echo "==> Sync complete!"
+echo "Run './script/lint' and './script/test' in '${DST_DIR}' to verify."

@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.typesafe import create_flow_from_options
 from custom_components.typesafe.const import (
     CONF_COMPOUND_THRESHOLD,
     CONF_CONFIDENCE_THRESHOLD,
     CONF_DOMAIN_FILTER_MODE,
     CONF_RETRIEVER_TYPE,
+    DEFAULT_COMPOUND_THRESHOLD,
+    DEFAULT_CONFIDENCE_THRESHOLD,
+)
+from custom_components.typesafe.speculative.resolution.target_binding import (
+    TargetBindingDecisionResolver,
+)
+from custom_components.typesafe.speculative.retrieval.lexical import (
+    LexicalCandidateRetriever,
 )
 
 
@@ -69,3 +80,44 @@ async def test_reload_on_options_update(
         config_entry.runtime_data.flow.retriever.__class__.__name__
         == "ExhaustiveCandidateRetriever"
     )
+
+
+def test_create_flow_from_options_default() -> None:
+    """Test create_flow_from_options uses default stages and thresholds."""
+    flow = create_flow_from_options({})
+    resolver = cast(TargetBindingDecisionResolver, flow.resolver)
+    retriever = cast(LexicalCandidateRetriever, flow.retriever)
+    assert resolver.confidence_threshold == DEFAULT_CONFIDENCE_THRESHOLD
+    assert resolver.compound_threshold == DEFAULT_COMPOUND_THRESHOLD
+    assert retriever.domain_filter_mode == "none"
+
+
+def test_create_flow_from_options_custom_parameters() -> None:
+    """Test create_flow_from_options passes custom filter mode and thresholds."""
+    flow = create_flow_from_options(
+        {
+            CONF_CONFIDENCE_THRESHOLD: 0.85,
+            CONF_COMPOUND_THRESHOLD: 0.45,
+            CONF_DOMAIN_FILTER_MODE: "boost",
+        }
+    )
+    resolver = cast(TargetBindingDecisionResolver, flow.resolver)
+    retriever = cast(LexicalCandidateRetriever, flow.retriever)
+    assert resolver.confidence_threshold == 0.85
+    assert resolver.compound_threshold == 0.45
+    assert retriever.domain_filter_mode == "boost"
+
+
+def test_create_flow_from_options_exhaustive() -> None:
+    """Test create_flow_from_options selects exhaustive candidate retriever."""
+    flow = create_flow_from_options(
+        {
+            CONF_RETRIEVER_TYPE: "exhaustive",
+            CONF_CONFIDENCE_THRESHOLD: 0.9,
+            CONF_COMPOUND_THRESHOLD: 0.2,
+        }
+    )
+    resolver = cast(TargetBindingDecisionResolver, flow.resolver)
+    assert resolver.confidence_threshold == 0.9
+    assert resolver.compound_threshold == 0.2
+    assert flow.retriever.__class__.__name__ == "ExhaustiveCandidateRetriever"
