@@ -219,8 +219,8 @@ async def test_process_low_confidence_with_fallback(
         {
             "intent": {
                 "choice": "HassTurnOn",
-                "confidence": 0.45,
-                "probabilities": {"HassTurnOn": 0.45},
+                "confidence": 0.35,
+                "probabilities": {"HassTurnOn": 0.35},
             },
             "is_compound": {"noul": 0.01},
         }
@@ -249,8 +249,8 @@ async def test_process_low_confidence_no_fallback(
         {
             "intent": {
                 "choice": "HassTurnOn",
-                "confidence": 0.45,
-                "probabilities": {"HassTurnOn": 0.45},
+                "confidence": 0.35,
+                "probabilities": {"HassTurnOn": 0.35},
             },
             "is_compound": {"noul": 0.01},
         }
@@ -502,16 +502,16 @@ async def test_confidence_exact_threshold_boundary(
     mock_client: MockTypeSafeClient,
     mock_intent_handlers: dict[str, MockBaseIntentHandler],
 ) -> None:
-    """Test confidence exactly at threshold (0.70) executes, not escalates."""
+    """Test confidence exactly at threshold (0.40) executes, not escalates."""
     hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
     mock_client.set_answers(
         {
             "intent": {
                 "choice": "HassTurnOn",
-                "confidence": 0.70,
-                "probabilities": {"HassTurnOn": 0.70},
+                "confidence": 0.40,
+                "probabilities": {"HassTurnOn": 0.40},
             },
-            "target_entity": {"choice": "light.test_light", "confidence": 0.70},
+            "target_entity": {"choice": "light.test_light", "confidence": 0.40},
             "is_compound": {"noul": 0.0},
         }
     )
@@ -534,16 +534,16 @@ async def test_confidence_just_below_threshold(
     config_entry: MockConfigEntry,
     mock_client: MockTypeSafeClient,
 ) -> None:
-    """Test confidence just below threshold (0.699) escalates / returns NO_INTENT_MATCH."""
+    """Test confidence just below threshold (0.399) escalates / returns NO_INTENT_MATCH."""
     hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
     mock_client.set_answers(
         {
             "intent": {
                 "choice": "HassTurnOn",
-                "confidence": 0.699,
-                "probabilities": {"HassTurnOn": 0.699},
+                "confidence": 0.399,
+                "probabilities": {"HassTurnOn": 0.399},
             },
-            "target_entity": {"choice": "light.test_light", "confidence": 0.699},
+            "target_entity": {"choice": "light.test_light", "confidence": 0.399},
             "is_compound": {"noul": 0.0},
         }
     )
@@ -1075,9 +1075,9 @@ async def test_unparseable_response_probabilities_none(
 @pytest.mark.parametrize(
     "noul,should_compound",
     [
-        (0.50, False),  # Exactly at compound threshold 0.5 -> not compound
-        (0.5001, True),  # Just above 0.5 -> compound
-        (0.4999, False),  # Just below 0.5 -> not compound
+        (0.70, False),  # Exactly at compound threshold 0.70 -> not compound
+        (0.7001, True),  # Just above 0.70 -> compound
+        (0.6999, False),  # Just below 0.70 -> not compound
         (1.0, True),  # Maximum compound probability
         (0.0, False),  # Minimum compound probability
     ],
@@ -1090,7 +1090,8 @@ async def test_compound_noul_boundary(
     noul: float,
     should_compound: bool,
 ) -> None:
-    """Test compound boundary: compound_threshold is 0.5."""
+    """Test compound boundary: compound_threshold is 0.70."""
+
     hass.states.async_set("light.test_light", "off", {"friendly_name": "Test Light"})
     mock_client.set_answers(
         {
@@ -1391,9 +1392,9 @@ async def test_compound_utterance_precedence_over_intent(
 @pytest.mark.parametrize(
     ("noul_value", "should_escalate_as_compound"),
     [
-        (0.50, False),  # 0.50 is not > 0.50
-        (0.51, True),  # 0.51 is > 0.50
-        (0.49, False),  # 0.49 is not > 0.50
+        (0.70, False),  # 0.70 is not > 0.70
+        (0.71, True),  # 0.71 is > 0.70
+        (0.69, False),  # 0.69 is not > 0.70
     ],
 )
 async def test_compound_boundary_threshold(
@@ -1404,7 +1405,8 @@ async def test_compound_boundary_threshold(
     noul_value: float,
     should_escalate_as_compound: bool,
 ) -> None:
-    """Verify the 0.5 threshold boundary for compound detection."""
+    """Verify the 0.70 threshold boundary for compound detection."""
+
     _ = mock_intent_handlers
     mock_client.set_answers(
         {

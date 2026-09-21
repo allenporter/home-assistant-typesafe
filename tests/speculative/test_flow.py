@@ -194,6 +194,13 @@ def test_flow_factory_configurations() -> None:
     assert ex_resolver.confidence_threshold == 0.75
     assert ex_resolver.compound_threshold == 0.25
 
+    default_flow = create_decision_flow(FlowConfig())
+    def_resolver = cast(TargetBindingDecisionResolver, default_flow.resolver)
+    def_retriever = cast(LexicalCandidateRetriever, default_flow.retriever)
+    assert def_resolver.confidence_threshold == 0.40
+    assert def_resolver.compound_threshold == 0.70
+    assert def_retriever.domain_filter_mode == "boost"
+
 
 async def test_flow_compound_and_low_confidence_escalation(
     context: DecisionContext,

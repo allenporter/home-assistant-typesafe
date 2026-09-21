@@ -57,10 +57,10 @@ Tune runtime thresholds and pipeline behavior in **Settings > Devices & Services
 
 | Option                   | Key                    | Default   | Description                                                                                                                                                              |
 | :----------------------- | :--------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Confidence Threshold** | `confidence_threshold` | `0.7`     | Minimum confidence required to execute an intent. Utterances below this threshold escalate to the fallback agent.                                                        |
-| **Compound Threshold**   | `compound_threshold`   | `0.5`     | Sensitivity threshold for detecting multi-action utterances (e.g., _"Turn on the lights and play music"_). Utterances scoring above this escalate to the fallback agent. |
+| **Confidence Threshold** | `confidence_threshold` | `0.40`    | Minimum confidence required to execute an intent. Utterances below this threshold escalate to the fallback agent.                                                        |
+| **Compound Threshold**   | `compound_threshold`   | `0.70`    | Sensitivity threshold for detecting multi-action utterances (e.g., _"Turn on the lights and play music"_). Utterances scoring above this escalate to the fallback agent. |
 | **Retriever Type**       | `retriever_type`       | `lexical` | Candidate retrieval strategy: `lexical` (BM25 token-scored candidate pruning for large homes) or `exhaustive` (evaluates all controllable entities).                     |
-| **Domain Filter Mode**   | `domain_filter_mode`   | `none`    | Controls how intent domains filter candidate entities: `none` (unfiltered), `strict` (strict domain matching), or `boost` (lexical score boost for matching domains).    |
+| **Domain Filter Mode**   | `domain_filter_mode`   | `boost`   | Controls how intent domains filter candidate entities: `none` (unfiltered), `strict` (strict domain matching), or `boost` (lexical score boost for matching domains).    |
 | **Fallback Agent**       | `fallback_agent`       | —         | Optional secondary conversation agent (e.g., an LLM or Home Assistant Cloud) to handle complex queries, conversational dialogue, or low-confidence requests.             |
 
 ## Related Projects

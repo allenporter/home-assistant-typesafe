@@ -27,7 +27,6 @@ from typesafe_sdk import (
 
 from custom_components.typesafe.const import (
     CONF_API_KEY,
-    CONF_CONFIDENCE_THRESHOLD,
     CONF_MODEL,
     DEFAULT_NAME,
     DOMAIN,
@@ -310,11 +309,10 @@ async def mock_config_entry(
             CONF_API_KEY: "test-api-key",
             CONF_MODEL: "jev-latest",
         },
-        options={
-            CONF_CONFIDENCE_THRESHOLD: 0.7,
-        },
+        options={},
         entry_id="typesafe_test_entry",
     )
+
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

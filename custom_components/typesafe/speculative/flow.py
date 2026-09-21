@@ -78,10 +78,10 @@ class DecisionFlow:
 class FlowConfig:
     """Configuration options for constructing a DecisionFlow."""
 
-    confidence_threshold: float
-    compound_threshold: float
+    confidence_threshold: float = 0.40
+    compound_threshold: float = 0.70
     retriever_type: Literal["lexical", "exhaustive"] = "lexical"
-    domain_filter_mode: Literal["none", "strict", "boost"] = "none"
+    domain_filter_mode: Literal["none", "strict", "boost"] = "boost"
 
 
 def create_decision_flow(config: FlowConfig) -> DecisionFlow:

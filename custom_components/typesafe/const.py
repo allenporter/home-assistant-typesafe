@@ -15,11 +15,12 @@ CONF_FALLBACK_AGENT: Final = "fallback_agent"
 
 # Defaults
 DEFAULT_MODEL: Final = "jev-latest"
-DEFAULT_CONFIDENCE_THRESHOLD: Final = 0.7
-DEFAULT_COMPOUND_THRESHOLD: Final = 0.5
-DEFAULT_DOMAIN_FILTER_MODE: Final = "none"
+DEFAULT_CONFIDENCE_THRESHOLD: Final = 0.40
+DEFAULT_COMPOUND_THRESHOLD: Final = 0.70
+DEFAULT_DOMAIN_FILTER_MODE: Final = "boost"
 DEFAULT_RETRIEVER_TYPE: Final = "lexical"
 DEFAULT_NAME: Final = "TypeSafe"
+
 
 # API endpoints
 API_BASE_URL: Final = "https://api.typesafe.ai"

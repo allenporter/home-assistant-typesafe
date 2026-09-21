@@ -48,9 +48,9 @@ async def test_reload_on_options_update(
 ) -> None:
     """Test config entry dynamically reloads on options update."""
     assert config_entry.state is ConfigEntryState.LOADED
-    assert config_entry.runtime_data.flow.resolver.confidence_threshold == 0.7
-    assert config_entry.runtime_data.flow.resolver.compound_threshold == 0.5
-    assert config_entry.runtime_data.flow.retriever.domain_filter_mode == "none"
+    assert config_entry.runtime_data.flow.resolver.confidence_threshold == 0.40
+    assert config_entry.runtime_data.flow.resolver.compound_threshold == 0.70
+    assert config_entry.runtime_data.flow.retriever.domain_filter_mode == "boost"
 
     hass.config_entries.async_update_entry(
         config_entry,
@@ -89,7 +89,7 @@ def test_create_flow_from_options_default() -> None:
     retriever = cast(LexicalCandidateRetriever, flow.retriever)
     assert resolver.confidence_threshold == DEFAULT_CONFIDENCE_THRESHOLD
     assert resolver.compound_threshold == DEFAULT_COMPOUND_THRESHOLD
-    assert retriever.domain_filter_mode == "none"
+    assert retriever.domain_filter_mode == "boost"
 
 
 def test_create_flow_from_options_custom_parameters() -> None:
