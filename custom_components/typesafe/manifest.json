@@ -9,5 +9,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/allenporter/home-assistant-typesafe/issues",
   "requirements": ["typesafe-sdk>=0.7.0"],
-  "version": "0.0.2"
+  "version": "0.1.0"
 }
