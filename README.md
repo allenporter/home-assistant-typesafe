@@ -2,6 +2,8 @@
 
 A Home Assistant custom conversation integration powered by **TypeSafe AI System One** (Jev model family) for fast, structured intent routing, entity resolution, and device control.
 
+Developed alongside its sibling project [**home-assistant-laya**](https://github.com/allenporter/home-assistant-laya) (a 100% local, open-weight implementation running directly on local hardware), this integration provides cloud-accelerated System One decision routing with zero local GPU/CPU overhead.
+
 ## Overview
 
 The TypeSafe integration acts as a high-speed, deterministic voice and intent decision engine for Home Assistant Assist. Built around Daniel Kahneman's "System One" (fast, intuitive decision-making) framework, it classifies natural language utterances and binds device targets in sub-200ms response windows without token-by-token text generation.
