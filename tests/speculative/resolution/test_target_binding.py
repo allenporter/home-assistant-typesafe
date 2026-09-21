@@ -1,4 +1,4 @@
-"""Unit tests for decision resolvers in Stage 5."""
+"""Unit tests for TargetBindingDecisionResolver in Stage 5."""
 
 from __future__ import annotations
 
@@ -9,12 +9,9 @@ from custom_components.typesafe.speculative.models import (
     NoulAnswer,
 )
 from custom_components.typesafe.speculative.request.models import ParsedRequest
-from custom_components.typesafe.speculative.resolution.resolver import (
-    DecisionResolver,
-    SimpleDecisionResolver,
+from custom_components.typesafe.speculative.resolution.target_binding import (
     TargetBindingDecisionResolver,
 )
-
 from custom_components.typesafe.speculative.retrieval.models import (
     AreaCandidate,
     RetrievedCandidates,
@@ -23,7 +20,7 @@ from custom_components.typesafe.speculative.scoring.engine import PredictionResu
 
 
 @pytest.fixture(name="resolver")
-def resolver_fixture() -> DecisionResolver:
+def resolver_fixture() -> TargetBindingDecisionResolver:
     """Fixture providing a TargetBindingDecisionResolver."""
     return TargetBindingDecisionResolver(
         confidence_threshold=0.7, compound_threshold=0.5
@@ -31,7 +28,7 @@ def resolver_fixture() -> DecisionResolver:
 
 
 def test_resolve_entity_target_and_bind_brightness(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test resolving entity target and binding raw percentage to brightness for light domain."""
     request = ParsedRequest(
@@ -60,7 +57,7 @@ def test_resolve_entity_target_and_bind_brightness(
 
 
 def test_resolve_area_target(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test resolving area broadcast target."""
     candidates = RetrievedCandidates(
@@ -88,7 +85,7 @@ def test_resolve_area_target(
 
 
 def test_resolve_compound_escalation(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test compound command triggers escalation."""
     request = ParsedRequest(
@@ -110,7 +107,7 @@ def test_resolve_compound_escalation(
 
 
 def test_resolve_low_confidence_escalation(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test low confidence prediction triggers escalation."""
     request = ParsedRequest(
@@ -131,7 +128,7 @@ def test_resolve_low_confidence_escalation(
 
 
 def test_resolve_low_confidence_target_entity_escalation(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test low confidence on target entity triggers escalation."""
     request = ParsedRequest(
@@ -157,7 +154,7 @@ def test_resolve_low_confidence_target_entity_escalation(
 
 
 def test_resolve_low_confidence_target_area_escalation(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test low confidence on target area triggers escalation."""
     candidates = RetrievedCandidates(
@@ -184,7 +181,7 @@ def test_resolve_low_confidence_target_area_escalation(
 
 
 def test_resolve_missing_target_entity_escalation(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test missing target entity when entity target type was specified."""
     request = ParsedRequest(
@@ -206,7 +203,7 @@ def test_resolve_missing_target_entity_escalation(
 
 
 def test_resolve_controllable_domain_matching_in_area(
-    resolver: DecisionResolver,
+    resolver: TargetBindingDecisionResolver,
 ) -> None:
     """Test matching controllable domains like fan in area commands."""
     candidates = RetrievedCandidates(
@@ -230,36 +227,3 @@ def test_resolve_controllable_domain_matching_in_area(
     assert not decision.should_escalate
     assert decision.area_name == "Patio"
     assert decision.slots["area"] == "Patio"
-
-
-def test_simple_decision_resolver_success() -> None:
-    """Test SimpleDecisionResolver passes on confident intent."""
-    simple = SimpleDecisionResolver(confidence_threshold=0.8)
-    request = ParsedRequest(raw_text="Turn on lights", normalized_text="turn on lights")
-    prediction = PredictionResult(
-        answers={
-            "intent": ChoiceAnswer(choice="HassTurnOn", confidence=0.85),
-        }
-    )
-
-    decision = simple.resolve(prediction, request, RetrievedCandidates())
-    assert not decision.should_escalate
-    assert decision.intent_name == "HassTurnOn"
-    assert decision.confidence == 0.85
-    assert decision.slots == {}
-
-
-def test_simple_decision_resolver_low_confidence() -> None:
-    """Test SimpleDecisionResolver escalates on low confidence."""
-    simple = SimpleDecisionResolver(confidence_threshold=0.8)
-    request = ParsedRequest(raw_text="Hello", normalized_text="hello")
-    prediction = PredictionResult(
-        answers={
-            "intent": ChoiceAnswer(choice="HassTurnOn", confidence=0.75),
-        }
-    )
-
-    decision = simple.resolve(prediction, request, RetrievedCandidates())
-    assert decision.should_escalate
-    assert decision.confidence == 0.75
-    assert decision.escalation_reason == "Unhandled intent or low confidence"

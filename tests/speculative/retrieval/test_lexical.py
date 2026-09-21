@@ -12,9 +12,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.typesafe.speculative.context import DecisionContext
 from custom_components.typesafe.speculative.request.models import ParsedRequest
-from custom_components.typesafe.speculative.request.processor import (
+from custom_components.typesafe.speculative.request.tokenizing import (
     TokenizingRequestProcessor,
 )
+
 
 from custom_components.typesafe.speculative.retrieval.lexical import (
     LexicalCandidateRetriever,

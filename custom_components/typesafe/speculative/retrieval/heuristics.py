@@ -11,7 +11,8 @@ import voluptuous as vol
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from ..request.processor import tokenize
+from ..request.tokenizing import tokenize
+
 
 _LOGGER = logging.getLogger(__name__)
 

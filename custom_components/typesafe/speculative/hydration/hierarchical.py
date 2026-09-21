@@ -1,8 +1,6 @@
-"""Candidate hydrator implementations for Stage 3."""
+"""Hierarchical multi-question candidate hydrator for Stage 3."""
 
 from __future__ import annotations
-
-from abc import ABC, abstractmethod
 
 from ..models import (
     ChoiceQuestion,
@@ -10,37 +8,7 @@ from ..models import (
     Question,
 )
 from ..retrieval.models import RetrievedCandidates
-
-
-class CandidateHydrator(ABC):
-    """Abstract interface for candidate hydration and question construction."""
-
-    @abstractmethod
-    def hydrate(
-        self,
-        candidates: RetrievedCandidates,
-    ) -> dict[str, Question]:
-        """Hydrate candidate metadata and construct System One questions."""
-
-
-class SimpleCandidateHydrator(CandidateHydrator):
-    """Simple candidate hydrator constructing a single intent classification question."""
-
-    def hydrate(
-        self,
-        candidates: RetrievedCandidates,
-    ) -> dict[str, Question]:
-        """Hydrate candidate intents into an intent question."""
-        intent_criteria: dict[str, str | None] = {}
-        for c in candidates.intents:
-            intent_criteria[c.intent_type] = c.description or f"Handle {c.intent_type}"
-
-        return {
-            "intent": ChoiceQuestion(
-                instructions="Determine the primary Home Assistant action",
-                criteria=intent_criteria,
-            )
-        }
+from .base import CandidateHydrator
 
 
 class HierarchicalCandidateHydrator(CandidateHydrator):

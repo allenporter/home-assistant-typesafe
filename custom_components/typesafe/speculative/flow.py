@@ -17,23 +17,18 @@ from ..const import (
     DEFAULT_RETRIEVER_TYPE,
 )
 from .context import DecisionContext
-from .hydration.hydrator import (
-    CandidateHydrator,
-    HierarchicalCandidateHydrator,
-    SimpleCandidateHydrator,
-)
+from .hydration.base import CandidateHydrator
+from .hydration.hierarchical import HierarchicalCandidateHydrator
 from .hydration.models import HydratedPayload
-from .request.processor import (
-    RequestProcessor,
-    SimpleRequestProcessor,
-    TokenizingRequestProcessor,
-)
+from .hydration.simple import SimpleCandidateHydrator
+from .request.base import RequestProcessor
+from .request.simple import SimpleRequestProcessor
+from .request.tokenizing import TokenizingRequestProcessor
+from .resolution.base import DecisionResolver
 from .resolution.models import Decision
-from .resolution.resolver import (
-    DecisionResolver,
-    SimpleDecisionResolver,
-    TargetBindingDecisionResolver,
-)
+from .resolution.simple import SimpleDecisionResolver
+from .resolution.target_binding import TargetBindingDecisionResolver
+
 from .retrieval.base import CandidateRetriever
 from .retrieval.exhaustive import ExhaustiveCandidateRetriever
 from .retrieval.lexical import LexicalCandidateRetriever

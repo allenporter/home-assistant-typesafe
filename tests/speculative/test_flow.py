@@ -26,19 +26,20 @@ from custom_components.typesafe.speculative.flow import (
     create_flow_from_options,
     create_simple_flow,
 )
-from custom_components.typesafe.speculative.hydration.hydrator import (
+from custom_components.typesafe.speculative.hydration.hierarchical import (
     HierarchicalCandidateHydrator,
 )
 from custom_components.typesafe.speculative.models import (
     ChoiceAnswer,
     NoulAnswer,
 )
-from custom_components.typesafe.speculative.request.processor import (
+from custom_components.typesafe.speculative.request.tokenizing import (
     TokenizingRequestProcessor,
 )
-from custom_components.typesafe.speculative.resolution.resolver import (
+from custom_components.typesafe.speculative.resolution.target_binding import (
     TargetBindingDecisionResolver,
 )
+
 from custom_components.typesafe.speculative.retrieval.exhaustive import (
     ExhaustiveCandidateRetriever,
 )
