@@ -22,7 +22,7 @@ jobs:
         run: |
           npx --package=renovate@38 -- renovate-config-validator .github/renovate.json5
 
-      - uses: codespell-project/actions-codespell@v2.0
+      - uses: codespell-project/actions-codespell@e3258cca84ce02b0bb36a3d41f2c18f719a0cc1a # v2.4.3
         with:
           check_hidden: false
           ignore_words_list: hass
